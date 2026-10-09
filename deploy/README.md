@@ -10,6 +10,7 @@ checkout of this repo at `~/beacon` on Sol. During the build-out it is **tailnet
 |---|---|
 | `JELLYFIN_API_KEY` | Already there (used by `health`). Lists users for the admin page. |
 | `BEACON_SESSION_SECRET` | 48+ random characters; signs login cookies. Changing it signs everyone out. |
+| `BEACON_TRAKT_CLIENT_ID` | Client ID of the "Empyrean Beacon" Trakt app (not secret). Its Redirect URIs: `https://sol.tail5afeac.ts.net:8445/beacon.html`, `https://beacon.empyrean.cc/beacon.html`. |
 
 Make the session secret with `openssl rand -base64 48`.
 
@@ -25,6 +26,7 @@ Make the session secret with `openssl rand -base64 48`.
       JELLYFIN_URL: http://host.docker.internal:8096   # host-networked (ufw: 172.16.0.0/12 -> 8096)
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:?set in .env}
       SESSION_SECRET: ${BEACON_SESSION_SECRET:?set in .env}
+      TRAKT_CLIENT_ID: ${BEACON_TRAKT_CLIENT_ID:-}   # Empyrean Beacon Trakt app
     extra_hosts:
       - host.docker.internal:host-gateway
     ports:

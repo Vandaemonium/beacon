@@ -21,6 +21,8 @@ export function loadConfig(env = process.env) {
     jellyfinUrl: (env.JELLYFIN_URL || 'http://host.docker.internal:8096').replace(/\/+$/, ''),
     jellyfinApiKey: need(env, 'JELLYFIN_API_KEY'),
     sessionSecret: secret,
+    // Empyrean's own Trakt app (not secret; Beacon uses PKCE, no client secret). Unset = the UI's built-in ID.
+    traktClientId: env.TRAKT_CLIENT_ID || null,
     sessionDays: Number(env.SESSION_DAYS || 30),
     cookieSecure: env.COOKIE_SECURE !== 'false',
     // Only trust X-Forwarded-For when a proxy we run (Caddy, tailscale serve) is in front.

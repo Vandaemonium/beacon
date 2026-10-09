@@ -4,6 +4,7 @@
  *   POST /api/login             { username, password } → session cookie
  *   POST /api/logout
  *   GET  /api/me                → { id, name, admin }
+ *   GET  /api/config            → { traktClientId } settings the UI needs (not secret)
  *   GET  /api/admin/users       Jellyfin users + whether each may use Beacon (admins only)
  *   POST /api/admin/allow       { id, allowed } (admins only)
  *   GET|PUT|DELETE /api/secrets/<key>   the signed-in user's own saved values (Trakt sign-in etc.)
@@ -159,6 +160,11 @@ export function createApp({ config, jellyfin, store, log = console }) {
       checkOrigin(req);
       res.setHeader('Set-Cookie', cookieHeader('', { secure: config.cookieSecure, maxAgeSeconds: 0 }));
       return { ok: true };
+    },
+
+    'GET /api/config': async req => {
+      await requireUser(req);
+      return { traktClientId: config.traktClientId };
     },
 
     'GET /api/me': async req => {

@@ -46,6 +46,11 @@ class TraktClient {
   async load() {
     this.config = await secrets.get('trakt:config') || { clientId: CLIENT_ID };
     if (!this.config.clientId) this.config.clientId = CLIENT_ID;
+    // Website: use the Trakt app set on the server (Empyrean's own), whose Redirect URIs list this site.
+    if (!hasIdentity() && /^https?:$/.test(location.protocol)) {
+      const server = await fetchJson('/api/config').then(r => r.body).catch(() => null);
+      if (server?.traktClientId) this.config = { clientId: server.traktClientId };
+    }
     delete this.config.clientSecret;
     this.tokens = await secrets.get('trakt:tokens');
     this.needsReconnect = !!(await secrets.get('trakt:needsReconnect'));

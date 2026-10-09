@@ -51,7 +51,7 @@ before(async () => {
   const config = {
     webDir: new URL('../../web/', import.meta.url).pathname,
     appDir: new URL('../../extension/', import.meta.url).pathname,
-    sessionSecret: 'x'.repeat(40), sessionDays: 30, cookieSecure: false, trustProxy: true, origins: []
+    sessionSecret: 'x'.repeat(40), sessionDays: 30, traktClientId: 'trakt-test-id', cookieSecure: false, trustProxy: true, origins: []
   };
   const jellyfin = jellyfinClient({ url: `http://127.0.0.1:${fakeJf.address().port}`, apiKey: API_KEY });
   app = createApp({ config, jellyfin, store: openStore(dataDir), log: {} });
@@ -204,4 +204,10 @@ test('each user has their own saved values, and only while signed in', async () 
   assert.equal((await req(key)).status, 401);
   assert.equal((await req('/api/secrets/' + encodeURIComponent('../../allowlist'), { cookie: admin.cookie })).status, 400);
   assert.equal((await req(key, { method: 'PUT', body: { value: 1 }, cookie: admin.cookie, headers: { Origin: 'https://evil.example' } })).status, 403);
+});
+
+test('the UI gets the server-side Trakt client ID once signed in', async () => {
+  assert.equal((await req('/api/config')).status, 401);
+  const admin = await login('cory', 'admin-pw');
+  assert.deepEqual((await req('/api/config', { cookie: admin.cookie })).data, { traktClientId: 'trakt-test-id' });
 });

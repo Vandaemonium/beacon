@@ -1,8 +1,8 @@
 # Running Beacon on Sol
 
 Beacon runs as the `beacon` container in Sol's `~/docker/compose.yaml`, built from a
-checkout of this repo at `~/beacon` on Sol. During the build-out it is **tailnet only**:
-<https://sol.tail5afeac.ts.net:8445>. It goes public at `beacon.empyrean.cc` in build step 5.
+checkout of this repo at `~/beacon` on Sol. Public at **<https://beacon.empyrean.cc>** (since 2026-10-09;
+Caddy + a DNS record kept by `cloudflare-ddns`), and on the tailnet at <https://sol.tail5afeac.ts.net:8445>.
 
 ## Secrets (Sol's `~/docker/.env`, never in git)
 
@@ -15,6 +15,7 @@ checkout of this repo at `~/beacon` on Sol. During the build-out it is **tailnet
 | `BEACON_PREMIUMIZE_API_KEY`, `BEACON_TORBOX_API_KEY` | The communal accounts (Barr's). Unset = that provider is off. |
 | `BEACON_IPTV_SERVER`, `BEACON_IPTV_USERNAME`, `BEACON_IPTV_PASSWORD` | The communal Live TV login. Never reaches a browser. |
 | `BEACON_IPTV_MAX_STREAMS` | How many Live TV streams the plan allows at once (3 as of 2026-10-09). |
+| `BEACON_MAX_VIEWERS` | People watching at once (default 4). Every stream uses Sol's home upload: 35-39 Mbit/s measured 2026-10-09, ~8 Mbit/s per 1080p film, shared with Jellyfin. |
 
 Make the session secret with `openssl rand -base64 48`.
 
@@ -56,6 +57,21 @@ Gluetun needs `HTTPPROXY: "on"` (port 8888, reachable only on the Docker network
 the normal network so it can reach Jellyfin; everything else goes through the proxy. Check it with
 Settings → Connection & VPN, or `docker exec beacon node -e "fetch('https://ipinfo.io/org').then(r=>r.text()).then(console.log)"`
 (should say Datacamp/Proton, not Comcast).
+
+## Public site (Caddy, `~/docker/caddy/Caddyfile`)
+
+```
+beacon.{$NEW_DOMAIN} {
+	import common
+	reverse_proxy 127.0.0.1:8796 {
+		flush_interval -1
+	}
+}
+```
+
+Only the new domain: the Empyrean Beacon Trakt app's Redirect URIs list `beacon.empyrean.cc`. Add
+`beacon.${NEW_DOMAIN}` to `cloudflare-ddns`'s `DOMAINS` for the DNS record. A brand-new record can make the
+first certificate attempt fail (NXDOMAIN); `docker exec caddy caddy reload --force ...` retries at once.
 
 ## Tailnet address
 

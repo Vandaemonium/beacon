@@ -23,6 +23,11 @@ export async function assertPublic(url, { allowPrivate = false } = {}) {
   if (!['http:', 'https:'].includes(u.protocol)) throw new UpstreamError(400, 'Only http(s) providers');
   if (allowPrivate) return u;
   const host = u.hostname.replace(/^\[|\]$/g, '');
+  if (/^localhost$|\.local$|\.internal$/i.test(host)) throw new UpstreamError(403, 'Refusing a private address');
+  // Behind Gluetun's proxy, names are resolved inside the VPN (and its firewall blocks local networks),
+  // so only literal addresses are checked here: a local lookup would leak provider names to Sol's DNS.
+  const viaProxy = process.env.NODE_USE_ENV_PROXY === '1' && !!(process.env.HTTPS_PROXY || process.env.https_proxy);
+  if (viaProxy && !isIP(host)) return u;
   const addrs = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => [])).map(a => a.address);
   if (!addrs.length) throw new UpstreamError(502, `Can't resolve ${host}`);
   if (addrs.some(a => PRIVATE.some(re => re.test(a)))) throw new UpstreamError(403, 'Refusing a private address');

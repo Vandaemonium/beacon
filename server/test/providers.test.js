@@ -207,6 +207,8 @@ test('outside fetches refuse private and local addresses', async () => {
     await assert.rejects(assertPublic(u), { status: 403 }, u);
   }
   await assert.rejects(assertPublic('file:///etc/passwd'), { status: 400 });
+  await assert.rejects(assertPublic('http://host.docker.internal:8096/'), { status: 403 });
+  await assert.rejects(assertPublic('http://localhost/'), { status: 403 });
 });
 
 test('connection check reports the address Sol leaves from', async () => {

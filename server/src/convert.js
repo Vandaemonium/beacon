@@ -90,12 +90,18 @@ export function converter({ maxTotal = 10, maxPerUser = 2, log = {} } = {}) {
     const release = take(user.id);
     if (typeof release === 'string') throw Object.assign(new Error(release), { status: 429 });
     const t = Math.max(0, Math.min(Number(start) || 0, Math.max(0, meta.duration - 1)));
+    // Where the copied video will begin (the keyframe at or before t).
+    const k = await keyframe(localUrl, t);
     const args = ['-n', '10', 'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin',
       // -noaccurate_seek: the audio also starts at the keyframe (not exactly at t), so both tracks begin
       // together with no gap; -copyts keeps their timestamps aligned to the source, as Live TV does.
       '-ss', t.toFixed(3), '-noaccurate_seek', '-copyts', '-i', localUrl,
       '-map', '0:v:0', ...(meta.audio.length ? ['-map', `0:a:${track}`] : []),
       '-c:v', 'copy', ...(meta.video === 'hevc' ? ['-tag:v', 'hvc1'] : []),
+      // Some releases' audio starts seconds after the picture (one had 11 s of video before its first audio
+      // packet); left alone, the converted audio would start at 0 and run that far ahead. Pad it with silence
+      // from the video's first frame (first_pts, in 1/48000 s), which also fills any gaps later on.
+      '-af', `aresample=48000:async=1:first_pts=${Math.round(k * 48000)}`, '-ar', '48000',
       '-c:a', 'aac', '-b:a', '192k', '-ac', '2', '-sn', '-dn',
       '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', 'pipe:1'];
     const p = spawn('nice', args, { env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe'] });

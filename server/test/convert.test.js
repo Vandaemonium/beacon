@@ -14,7 +14,7 @@ import { openStore } from '../src/store.js';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
 const skip = !hasFfmpeg && 'ffmpeg not installed';
-let film, syncFilm, jf, fake, app, base, dataDir, cookie, friendCookie;
+let film, syncFilm, lateFilm, jf, fake, app, base, dataDir, cookie, friendCookie;
 
 const listen = s => new Promise(r => s.listen(0, '127.0.0.1', () => r(s)));
 const json = (res, st, v) => { res.writeHead(st, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(v)); };
@@ -46,6 +46,13 @@ before(async () => {
     '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '250', '-keyint_min', '250', '-sc_threshold', '0', '-pix_fmt', 'yuv420p',
     '-c:a', 'ac3', '-ac', '2', '-y', syncPath]);
   syncFilm = readFileSync(syncPath);
+  // Like Onslaught (2026, BYNDR): the audio track only begins 5 s into the film. Flash + beep at film 15 s.
+  const latePath = join(dataDir, 'late.mkv');
+  spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error',
+    '-f', 'lavfi', '-i', "color=c=black:s=320x240:r=24000/1001:d=30,drawbox=x=0:y=0:w=iw:h=ih:color=white:t=fill:enable='between(t,15,15.15)'",
+    '-itsoffset', '5', '-f', 'lavfi', '-i', "sine=f=1000:d=25:sample_rate=48000,volume='if(between(t,10,10.15),1,0)':eval=frame",
+    '-map', '0:v', '-map', '1:a', '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '48', '-pix_fmt', 'yuv420p', '-c:a', 'eac3', '-ac', '6', '-y', latePath]);
+  lateFilm = readFileSync(latePath);
   const users = {
     'u-admin': { Id: 'u-admin', Name: 'cory', pw: 'a', Policy: { IsAdministrator: true } },
     'u-friend': { Id: 'u-friend', Name: 'coworker', pw: 'f', Policy: { IsAdministrator: false } }
@@ -64,10 +71,11 @@ before(async () => {
   }));
   fake = await listen(createServer((req, res) => {
     if (req.url.startsWith('/pm/')) {
-      const id = new URL(req.url, 'http://x').searchParams.get('id') === 'sync' ? 'sync' : 'film';
+      const q = new URL(req.url, 'http://x').searchParams.get('id');
+      const id = q === 'sync' || q === 'late' ? q : 'film';
       return json(res, 200, { status: 'success', link: `http://127.0.0.1:${fake.address().port}/${id}.mkv` });
     }
-    const body = req.url === '/film.mkv' ? film : req.url === '/sync.mkv' ? syncFilm : null;
+    const body = { '/film.mkv': film, '/sync.mkv': syncFilm, '/late.mkv': lateFilm }[req.url] || null;
     if (!body) return json(res, 404, {});
     const m = /bytes=(\d+)-(\d*)/.exec(req.headers.range || '');
     const s = m ? Number(m[1]) : 0, e = m && m[2] ? Number(m[2]) : body.length - 1;
@@ -160,4 +168,21 @@ test('after a seek between keyframes, picture and sound stay together, and /star
   }
   // The player shows start + element time: a flash must land on a whole second of film time.
   for (const x of flashes.slice(0, 5)) assert.ok(Math.abs(((start + x) % 1 + 1) % 1 - 0) < 0.1 || Math.abs((start + x) % 1 - 1) < 0.1, `flash at film time ${start + x}`);
+});
+
+test('a release whose audio starts late (like Onslaught) gets silence, not a gap, so the sound stays in place', { skip }, async () => {
+  // Browsers play audio packets back to back: a timestamp gap at the start made Onslaught's sound 11 s early.
+  const link = await linkFor(cookie, 'late');
+  for (const at of [0, 2, 12]) {
+    const { start } = await (await fetch(base + link + '/start?t=' + at)).json();
+    const f = join(dataDir, `late-${at}.mp4`);
+    writeFileSync(f, Buffer.from(await (await fetch(base + link + '/aac?t=' + at)).arrayBuffer()));
+    const pts = sel => spawnSync('ffprobe', ['-v', 'error', '-select_streams', sel, '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', f], { maxBuffer: 1e8 })
+      .stdout.toString().trim().split('\n').map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+    const a = pts('a:0'), v = pts('v:0');
+    const gap = Math.max(...a.slice(1).map((x, i) => x - a[i]));
+    assert.ok(gap < 0.1, `from ${at}: largest gap between audio packets ${gap.toFixed(2)} s`);
+    assert.ok(Math.abs(a[0] - v[0]) < 0.15, `from ${at}: audio starts at ${a[0]}, video at ${v[0]}`);
+    assert.ok(Math.abs(start - (at <= 0 ? 0 : start)) < 1e-9 && start <= at + 0.01, `from ${at}: start ${start}`);
+  }
 });

@@ -99,7 +99,12 @@ export function createApp({ config, jellyfin, store, log = console, monitor: mon
   async function jellyfinUser(uid) {
     const hit = userCache.get(uid);
     if (hit && Date.now() - hit.at < USER_TTL_MS) return hit.user;
-    const user = await jellyfin.user(uid);
+    let user;
+    try { user = await jellyfin.user(uid); } catch (e) {
+      // Jellyfin slow or down: keep people who are already signed in going on the last answer we had.
+      if (hit) return hit.user;
+      throw e;
+    }
     userCache.set(uid, { user, at: Date.now() });
     return user;
   }
@@ -193,7 +198,14 @@ export function createApp({ config, jellyfin, store, log = console, monitor: mon
       if (typeof username !== 'string' || typeof password !== 'string' || !username || username.length > 128 || password.length > 1024) {
         throw new HttpError(400, 'Username and password are required');
       }
-      const user = await jellyfin.authenticate(username, password);
+      let user;
+      try { user = await jellyfin.authenticate(username, password); } catch (e) {
+        log.error?.(`login for "${username}" from ${ip}: ${e.message}`);
+        mon.error('/api/login', e.message);
+        throw new HttpError(503, e.slow
+          ? 'The media server is very busy and took too long to check your password. Please try again in a minute.'
+          : 'Beacon couldn’t reach the media server to check your password. Please try again in a minute.');
+      }
       if (!user) {
         limiter.fail(ip);
         mon.login(false, username);

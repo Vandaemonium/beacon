@@ -12,21 +12,26 @@ function authHeader(token) {
   return 'MediaBrowser ' + parts.join(', ');
 }
 
-export function jellyfinClient({ url, apiKey, timeout = 10000 }) {
-  async function call(path, { method = 'GET', token, body } = {}) {
-    const r = await fetch(url + path, {
-      method,
-      headers: { 'Authorization': authHeader(token), ...(body ? { 'Content-Type': 'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(timeout)
-    });
-    return r;
+// Sol's library disk is sometimes so busy that Jellyfin takes many seconds to check a password
+// (a 10 s limit turned a coworker away on 2026-10-09), so sign-ins get 30 s.
+export function jellyfinClient({ url, apiKey, timeout = 15000, loginTimeout = 30000 }) {
+  async function call(path, { method = 'GET', token, body, wait = timeout } = {}) {
+    try {
+      return await fetch(url + path, {
+        method,
+        headers: { 'Authorization': authHeader(token), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(wait)
+      });
+    } catch (e) {
+      throw Object.assign(new Error(e.name === 'TimeoutError' ? 'Jellyfin took too long to answer' : "Couldn't reach Jellyfin"), { jellyfin: true, slow: e.name === 'TimeoutError' });
+    }
   }
 
   return {
     // → { id, name, admin } for a good password, null for a wrong one; throws if Jellyfin is unreachable.
     async authenticate(username, password) {
-      const r = await call('/Users/AuthenticateByName', { method: 'POST', body: { Username: username, Pw: password } });
+      const r = await call('/Users/AuthenticateByName', { method: 'POST', body: { Username: username, Pw: password }, wait: loginTimeout });
       if (r.status === 401 || r.status === 400) return null;
       if (!r.ok) throw new Error(`Jellyfin login failed: HTTP ${r.status}`);
       const j = await r.json();

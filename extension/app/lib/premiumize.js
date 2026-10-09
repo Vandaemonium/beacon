@@ -2,7 +2,7 @@
  * (same key and storage slot used by Beacon's original Media Hub).
  */
 'use strict';
-import { cache, hubKey, setHubKey, fetchJson, emit } from './store.js';
+import { cache, hubKey, setHubKey, fetchJson, emit, onEmpyrean, shared } from './store.js';
 import { parseRelease, norm, cinemetaSearch } from './meta.js';
 
 const BASE = 'https://www.premiumize.me/api/';
@@ -12,6 +12,7 @@ const MATCH_KEY = 'beacon:pm:match:v1';
 export const isVideo = f => VIDEO.test(f.name || f.path || '') || /^video\//.test(f.mime_type || '');
 
 async function call(path, params = {}, method = 'GET', key = hubKey('premiumize')) {
+  if (onEmpyrean()) return callShared(path, params, method);
   if (!key) throw new Error('Connect Premiumize in Settings');
   let url = BASE + path, opts = { method };
   if (method === 'GET') {
@@ -30,13 +31,30 @@ async function call(path, params = {}, method = 'GET', key = hubKey('premiumize'
   return body;
 }
 
+/* Website: Empyrean's shared account, through Beacon's server (it adds the key; links come back as Beacon stream links). */
+async function callShared(path, params, method) {
+  let r;
+  if (method === 'GET') {
+    const u = new URL('/api/pm/' + path, location.origin);
+    for (const [k, v] of Object.entries(params)) {
+      if (Array.isArray(v)) v.forEach(x => u.searchParams.append(k + '[]', x)); else if (v != null) u.searchParams.set(k, v);
+    }
+    r = await fetchJson(u.href, {}, 30000);
+  } else {
+    r = await fetchJson('/api/pm/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ params }) }, 30000);
+  }
+  if (r.body?.status !== 'success') throw new Error(r.body?.message || 'Premiumize request failed');
+  return r.body;
+}
+
 let matchMap = {};
 try { matchMap = JSON.parse(localStorage.getItem(MATCH_KEY) || '{}'); } catch {}
 const saveMatches = () => { try { localStorage.setItem(MATCH_KEY, JSON.stringify(matchMap)); } catch {} };
 
 export const pm = {
   files: [], transfers: [], account: null, loadedAt: 0, error: '',
-  connected: () => !!hubKey('premiumize'),
+  connected: () => onEmpyrean() ? shared('premiumize') : !!hubKey('premiumize'),
+  shared: () => onEmpyrean(),
 
   async connect(key) {
     const info = await call('account/info', {}, 'GET', key.trim());

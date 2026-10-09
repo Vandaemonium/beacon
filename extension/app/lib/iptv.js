@@ -5,7 +5,10 @@
  * (Settings › Connection & VPN confirms it).
  */
 'use strict';
-import { cache, emit } from './store.js';
+import { cache, emit, onEmpyrean, shared, empyrean } from './store.js';
+
+// Website: Empyrean's shared Live TV account lives on Sol; the browser never sees its login.
+const SHARED_ACCOUNT = { server: 'empyrean', username: 'Empyrean', password: '' };
 
 const ACCOUNT = 'beacon:web:account';
 const norm = v => String(v || '').trim().replace(/\/+$/, '');
@@ -19,6 +22,7 @@ export const iptv = {
   epg: new Map(),
 
   load() {
+    if (onEmpyrean()) { iptv.account = shared('iptv') ? SHARED_ACCOUNT : null; iptv.loadPrefs(); return iptv; }
     const raw = sessionStorage.getItem(ACCOUNT) || localStorage.getItem(ACCOUNT);
     try { iptv.account = raw ? JSON.parse(raw) : null; } catch { iptv.account = null; }
     iptv.loadPrefs();
@@ -29,6 +33,7 @@ export const iptv = {
 
   /** Same ID formula as app.js so favorites / recents are shared with the classic page. */
   accountId() {
+    if (onEmpyrean()) return 'empyrean';
     const a = iptv.account;
     return a ? btoa(unescape(encodeURIComponent(`${a.server}\n${a.username}`))).replace(/[^a-z0-9]/gi, '').slice(0, 40) : 'none';
   },
@@ -40,6 +45,12 @@ export const iptv = {
   savePrefs() { localStorage.setItem(iptv.prefKey(), JSON.stringify(iptv.prefs)); emit('iptv:prefs'); },
 
   url(action = '', params = {}) {
+    if (onEmpyrean()) {
+      const u = new URL('/api/iptv/player_api', location.origin);
+      if (action) u.searchParams.set('action', action);
+      for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
+      return u;
+    }
     const a = iptv.account;
     const u = new URL(`${a.server}/player_api.php`);
     u.searchParams.set('username', a.username); u.searchParams.set('password', a.password);
@@ -49,16 +60,20 @@ export const iptv = {
   },
   async api(action = '', params = {}, timeout = 25000) {
     let r;
-    try { r = await fetch(iptv.url(action, params), { signal: AbortSignal.timeout(timeout), cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer' }); }
+    try { r = await fetch(iptv.url(action, params), { signal: AbortSignal.timeout(timeout), cache: 'no-store', credentials: onEmpyrean() ? 'same-origin' : 'omit', referrerPolicy: 'no-referrer' }); }
     catch (e) {
       if (e?.name === 'TimeoutError') throw new Error('Your provider took too long to respond.');
       throw new Error('Couldn’t reach your IPTV provider. Check the server address and that your browser VPN is connected.');
     }
-    if (!r.ok) throw new Error(`Provider returned HTTP ${r.status}`);
+    if (!r.ok) {
+      const msg = await r.json().then(j => j.error).catch(() => '');
+      throw new Error(msg || `Provider returned HTTP ${r.status}`);
+    }
     return r.json();
   },
 
   async signIn({ server, username, password }, remember) {
+    if (onEmpyrean()) throw new Error('Live TV uses Empyrean’s shared account; there’s nothing to sign in to.');
     const account = { server: norm(server), username: String(username || '').trim(), password: String(password || '') };
     if (!/^https?:\/\//i.test(account.server)) throw new Error('Server URL must start with http:// or https://');
     if (!account.username || !account.password) throw new Error('Username and password are required.');
@@ -79,6 +94,7 @@ export const iptv = {
     return account;
   },
   signOut() {
+    if (onEmpyrean()) return;
     localStorage.removeItem(ACCOUNT); sessionStorage.removeItem(ACCOUNT);
     iptv.account = null; iptv.channels = []; iptv.categories = []; iptv.loadedAt = 0; iptv.epg.clear();
     emit('iptv:status');
@@ -140,6 +156,8 @@ export const iptv = {
   },
 
   streamUrl(ch) {
+    // Website: a Beacon link that works on its own (VLC, copied links) for 12 hours.
+    if (onEmpyrean()) return `${location.origin}/api/iptv/live/${encodeURIComponent(ch.id)}.m3u8?k=${encodeURIComponent(empyrean?.streamKey || '')}`;
     const a = iptv.account;
     return `${a.server}/live/${encodeURIComponent(a.username)}/${encodeURIComponent(a.password)}/${ch.id}.m3u8`;
   },

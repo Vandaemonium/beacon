@@ -209,5 +209,7 @@ test('each user has their own saved values, and only while signed in', async () 
 test('the UI gets the server-side Trakt client ID once signed in', async () => {
   assert.equal((await req('/api/config')).status, 401);
   const admin = await login('cory', 'admin-pw');
-  assert.deepEqual((await req('/api/config', { cookie: admin.cookie })).data, { traktClientId: 'trakt-test-id' });
+  const c = (await req('/api/config', { cookie: admin.cookie })).data;
+  assert.equal(c.traktClientId, 'trakt-test-id');
+  assert.deepEqual(c.providers, { premiumize: false, torbox: false, iptv: false });
 });

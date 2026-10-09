@@ -4,7 +4,7 @@
  * Your own Trakt API app's Client ID / Secret are entered in Settings — nothing is hard-coded.
  */
 'use strict';
-import { cache, secrets, fetchJson, emit } from './store.js';
+import { cache, secrets, fetchJson, emit, empyrean } from './store.js';
 import { fromTrakt, unwrapTrakt, keyOf } from './meta.js';
 
 export const API = 'https://api.trakt.tv';
@@ -47,10 +47,7 @@ class TraktClient {
     this.config = await secrets.get('trakt:config') || { clientId: CLIENT_ID };
     if (!this.config.clientId) this.config.clientId = CLIENT_ID;
     // Website: use the Trakt app set on the server (Empyrean's own), whose Redirect URIs list this site.
-    if (!hasIdentity() && /^https?:$/.test(location.protocol)) {
-      const server = await fetchJson('/api/config').then(r => r.body).catch(() => null);
-      if (server?.traktClientId) this.config = { clientId: server.traktClientId };
-    }
+    if (!hasIdentity() && empyrean?.traktClientId) this.config = { clientId: empyrean.traktClientId };
     delete this.config.clientSecret;
     this.tokens = await secrets.get('trakt:tokens');
     this.needsReconnect = !!(await secrets.get('trakt:needsReconnect'));

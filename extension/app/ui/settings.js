@@ -6,7 +6,7 @@ import { trakt } from '../lib/trakt.js';
 import { pm } from '../lib/premiumize.js';
 import { torbox } from '../lib/torbox.js';
 import { history } from '../lib/history.js';
-import { prefs, setPref, hubKey, setHubKey, fetchJson } from '../lib/store.js';
+import { prefs, setPref, hubKey, setHubKey, fetchJson, onEmpyrean } from '../lib/store.js';
 import { providerSummary, installedAddons } from '../lib/sources.js';
 import { fmtDate, fmtBytes } from '../lib/meta.js';
 import { timeAgo } from './pages.js';
@@ -77,6 +77,9 @@ function traktCard(redraw) {
 
 /* ---------------- Premiumize ---------------- */
 function premiumizeCard(redraw) {
+  if (pm.shared()) return sharedCard('Premiumize', pm.connected(), [
+    btn('Refresh cloud', { icon: 'sync', kind: 'primary', onClick: async e => { e.currentTarget.classList.add('spinning'); await pm.refresh(true); pm.matchLibrary(); redraw(); } }),
+    btn('Open Premiumize', { icon: 'cloud', kind: 'ghost', onClick: () => actions.navigate('#/premiumize') })]);
   if (pm.connected()) {
     const a = pm.account;
     return card('Premiumize', 'Your cloud library, instant availability checks and playback links.',
@@ -99,8 +102,16 @@ function premiumizeCard(redraw) {
     } })));
 }
 
+/* Website: Premiumize, TorBox and Live TV use Empyrean's shared accounts, kept on Sol. */
+function sharedCard(name, on, buttons = []) {
+  return card(name, `Uses Empyrean’s shared ${name} account. The login stays on the server; this browser never sees it.`,
+    status(on, on ? 'Connected (shared account)' : 'Not set up on the server yet'),
+    on && buttons.length ? h('div.btn-row', ...buttons) : h('p.muted.small', on ? '' : 'Ask the Beacon admin to add it.'));
+}
+
 /* ---------------- TorBox ---------------- */
 function torboxCard(redraw) {
+  if (onEmpyrean()) return sharedCard('TorBox', torbox.connected());
   if (torbox.connected()) return card('TorBox', 'Optional second cloud service (from earlier Beacon versions).', status(true, 'Connected'),
     h('div.btn-row', btn('Disconnect', { kind: 'ghost', onClick: () => { setHubKey('torbox', ''); redraw(); } })));
   const key = h('input', { type: 'password', placeholder: 'TorBox API token', autocomplete: 'off' });
@@ -133,6 +144,8 @@ function playbackCard() {
 
 /* ---------------- Connection / VPN ---------------- */
 function connectionCard() {
+  if (onEmpyrean()) return card('Connection & VPN', 'On Empyrean, Live TV, Premiumize and TorBox traffic leaves from Beacon’s server through its VPN. This check shows the address providers see.',
+    connectionPanel().el);
   return card('Connection & VPN', 'Beacon Hub sends every request through Chrome, so your browser VPN extension can cover it. This check confirms that it actually does.',
     connectionPanel().el,
     h('p.muted.small', 'For a full check, open Chrome’s developer tools (F12 › Network) while a channel plays, and make sure your VPN extension has no “bypass” rule for your IPTV or Premiumize addresses.'));
@@ -164,6 +177,7 @@ function sourcesCard() {
 /* ---------------- Live TV ---------------- */
 function liveCard() {
   const on = iptv.signedIn();
+  if (onEmpyrean()) return sharedCard('Live TV', on, [btn('Open Live TV', { icon: 'tv', kind: 'primary', onClick: () => actions.navigate('#/live') })]);
   let host = ''; try { host = on ? new URL(iptv.account.server).host : ''; } catch {}
   return card('Live TV', 'Your IPTV channels, guide and favorites. Requests go straight from this browser to your provider.',
     status(on, on ? `Signed in as ${iptv.account.username} · ${host}` : 'Not signed in'),

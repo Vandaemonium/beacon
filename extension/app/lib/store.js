@@ -107,6 +107,17 @@ export function setPref(key, value) {
   const p = prefs(); p[key] = value; localStorage.setItem(PREF_KEY, JSON.stringify(p)); return p;
 }
 
+/* Website (Empyrean): settings from Beacon's server — which shared accounts exist, the Trakt app,
+ * a stream key for Live TV links. Loaded once at startup (loadEmpyrean) so checks stay synchronous. */
+export const onEmpyrean = () => onWeb();
+export let empyrean = null;
+export async function loadEmpyrean() {
+  if (!onEmpyrean()) return null;
+  try { empyrean = (await fetchJson('/api/config')).body; } catch (e) { if (e.status === 401) location.href = '/'; empyrean = empyrean || { providers: {} }; }
+  return empyrean;
+}
+export const shared = name => !!empyrean?.providers?.[name];
+
 /** Shared credentials written by the original Media Hub (media.js). */
 export const hubKey = name => localStorage.getItem('beacon:hub:' + name) || sessionStorage.getItem('beacon:hub:' + name) || '';
 export const setHubKey = (name, value) => {

@@ -4,7 +4,10 @@
  *   POST /api/login             { username, password } → session cookie
  *   POST /api/logout
  *   GET  /api/me                → { id, name, admin }
- *   GET  /api/config            → { traktClientId } settings the UI needs (not secret)
+ *   GET  /api/config            → settings the UI needs: traktClientId, which communal providers
+ *                               exist, and a stream key for VLC-openable Live TV links
+ *   /api/pm, /api/tb, /api/iptv, /api/stream   the communal accounts (see providers.js)
+ *   GET  /api/netcheck          the address Sol's provider traffic leaves from
  *   GET  /api/admin/users       Jellyfin users + whether each may use Beacon (admins only)
  *   POST /api/admin/allow       { id, allowed } (admins only)
  *   GET|PUT|DELETE /api/secrets/<key>   the signed-in user's own saved values (Trakt sign-in etc.)
@@ -19,6 +22,9 @@ import { readFile, stat } from 'node:fs/promises';
 import { join, normalize, extname, sep } from 'node:path';
 import { COOKIE, issue, verify, parseCookies, cookieHeader } from './session.js';
 import { failureLimiter } from './ratelimit.js';
+import { vault as makeVault } from './vault.js';
+import { providers as makeProviders } from './providers.js';
+import { UpstreamError } from './upstream.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -38,6 +44,7 @@ const USER_TTL_MS = 60e3;
 const MAX_BODY = 64 * 1024;
 const SECRET_KEY = /^[A-Za-z0-9:._-]{1,64}$/;
 
+const DONE = Symbol('streamed');
 const safeDecode = s => { try { return decodeURIComponent(s); } catch { return ''; } };
 
 class HttpError extends Error {
@@ -47,6 +54,8 @@ class HttpError extends Error {
 export function createApp({ config, jellyfin, store, log = console }) {
   const limiter = failureLimiter();
   const userCache = new Map();
+  const vault = makeVault(config.sessionSecret);
+  const prov = makeProviders({ config, vault, log });
 
   async function jellyfinUser(uid) {
     const hit = userCache.get(uid);
@@ -101,6 +110,13 @@ export function createApp({ config, jellyfin, store, log = console }) {
     if (!s) return null;
     const user = await jellyfinUser(s.uid);
     return mayUse(user) ? user : null;
+  }
+
+  // A user named inside a stream token or stream key, still allowed to use Beacon.
+  async function tokenUser(data) {
+    const user = data?.uid ? await jellyfinUser(data.uid) : null;
+    if (!mayUse(user)) throw new HttpError(401, 'This link has expired or its owner was signed out');
+    return user;
   }
 
   async function requireUser(req, { admin = false } = {}) {
@@ -163,8 +179,18 @@ export function createApp({ config, jellyfin, store, log = console }) {
     },
 
     'GET /api/config': async req => {
+      const me = await requireUser(req);
+      return {
+        traktClientId: config.traktClientId,
+        providers: prov.has,
+        streamKey: vault.seal({ uid: me.id, k: 'key' }, 12 * 3600e3),
+        live: prov.liveSlots()
+      };
+    },
+
+    'GET /api/netcheck': async req => {
       await requireUser(req);
-      return { traktClientId: config.traktClientId };
+      return prov.netcheck();
     },
 
     'GET /api/me': async req => {
@@ -203,6 +229,40 @@ export function createApp({ config, jellyfin, store, log = console }) {
     try { return (await stat(file)).isFile() ? file : null; } catch { return null; }
   }
 
+  // → JSON to send, DONE when the response was streamed, or undefined when not a provider path
+  async function providerRoute(req, res, pathname) {
+    const { searchParams } = new URL(req.url, 'http://beacon');
+    for (const [prefix, fn] of [['/api/pm/', prov.premiumize], ['/api/tb/', prov.torbox]]) {
+      if (!pathname.startsWith(prefix)) continue;
+      const user = await requireUser(req);
+      let body;
+      if (req.method === 'POST') { checkOrigin(req); body = await readBody(req); }
+      else if (req.method !== 'GET') throw new HttpError(405, 'Method not allowed');
+      return fn({ user, method: req.method, path: pathname.slice(prefix.length), query: searchParams, body });
+    }
+    if (pathname === '/api/iptv/player_api' && req.method === 'GET') {
+      return prov.iptvApi({ user: await requireUser(req), query: searchParams });
+    }
+    const liveM = pathname.match(/^\/api\/iptv\/live\/([^/]+)\.m3u8$/);
+    if (liveM && req.method === 'GET') {
+      const key = searchParams.get('k');
+      const keyData = key ? vault.open(key) : null;
+      if (key && keyData?.k !== 'key') throw new HttpError(401, 'This Live TV link has expired. Open the channel again in Beacon.');
+      const user = key ? await tokenUser(keyData) : await requireUser(req);
+      const body = await prov.iptvLive({ user, id: liveM[1] });
+      res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
+      res.end(body);
+      return DONE;
+    }
+    if (pathname.startsWith('/api/stream/') && (req.method === 'GET' || req.method === 'HEAD')) {
+      const data = vault.open(pathname.slice(12));
+      if (!data || !data.u) throw new HttpError(401, 'This link has expired. Start the video again in Beacon.');
+      await prov.stream({ req, res, data, user: await tokenUser(data) });
+      return DONE;
+    }
+    return undefined;
+  }
+
   async function serveStatic(req, res, pathname) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Method not allowed' });
     let rel;
@@ -238,6 +298,8 @@ export function createApp({ config, jellyfin, store, log = console }) {
     const route = routes[`${req.method} ${pathname}`];
     try {
       if (pathname.startsWith('/api/secrets/')) return send(res, 200, await secretsRoute(req, safeDecode(pathname.slice(13))));
+      const provider = await providerRoute(req, res, pathname);
+      if (provider !== undefined) return provider === DONE ? undefined : send(res, 200, provider);
       if (route) {
         const out = await route(req, res);
         return send(res, 200, out);
@@ -245,7 +307,8 @@ export function createApp({ config, jellyfin, store, log = console }) {
       if (pathname.startsWith('/api/')) return send(res, 404, { error: 'No such API route' });
       return await serveStatic(req, res, pathname);
     } catch (e) {
-      if (e instanceof HttpError) return send(res, e.status, { error: e.message });
+      if (res.headersSent) return res.destroy();
+      if (e instanceof HttpError || e instanceof UpstreamError) return send(res, e.status, { error: e.message });
       log.error?.(`${req.method} ${pathname} failed:`, e.message);
       return send(res, 502, { error: 'Beacon could not reach a service it needs. Try again shortly.' });
     }

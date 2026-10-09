@@ -2,10 +2,10 @@
 export function makeVlcPlaylist(url, title = 'Beacon stream') {
   if (typeof url !== 'string' || /[\r\n\0]/.test(url)) throw new Error('Invalid streaming URL');
   let parsed;
-  try { parsed = new URL(url); } catch { throw new Error('Invalid streaming URL'); }
+  try { parsed = new URL(url, location.href); } catch { throw new Error('Invalid streaming URL'); }
   if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('Only HTTP(S) streams can be added to VLC playlists');
   const label = String(title || 'Beacon stream').replace(/[\r\n\0,]/g, ' ').trim().slice(0, 140) || 'Beacon stream';
-  return `#EXTM3U\n#EXTINF:-1,${label}\n${url}\n`;
+  return `#EXTM3U\n#EXTINF:-1,${label}\n${parsed.href}\n`;
 }
 export function downloadVlcPlaylist(url, title) {
   const contents = makeVlcPlaylist(url, title);

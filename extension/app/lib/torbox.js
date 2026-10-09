@@ -1,12 +1,20 @@
 /* Beacon Hub 1.0 TorBox helper — keeps the TorBox support from Beacon 2.x/3.x available in the new UI. */
 'use strict';
-import { hubKey, fetchJson } from './store.js';
+import { hubKey, fetchJson, onEmpyrean, shared } from './store.js';
 import { parseRelease, norm } from './meta.js';
 
 const BASE = 'https://api.torbox.app/v1/api/';
 const VIDEO = /\.(mkv|mp4|avi|m4v|mov|webm|ts)$/i;
 
 async function tb(path, { query = {}, method = 'GET', body } = {}) {
+  if (onEmpyrean()) {
+    // Website: Empyrean's shared account, through Beacon's server (it adds the key).
+    const u = new URL('/api/tb/' + path, location.origin);
+    for (const [k, v] of Object.entries(query)) u.searchParams.set(k, String(v));
+    const { body: data } = await fetchJson(u.href, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}, 25000);
+    if (data?.success === false) throw new Error(data.detail || data.error || 'TorBox request failed');
+    return data?.data;
+  }
   const key = hubKey('torbox');
   if (!key) throw new Error('Connect TorBox in Settings');
   const u = new URL(BASE + path);
@@ -19,7 +27,7 @@ async function tb(path, { query = {}, method = 'GET', body } = {}) {
 
 export const torbox = {
   list: [], loadedAt: 0,
-  connected: () => !!hubKey('torbox'),
+  connected: () => onEmpyrean() ? shared('torbox') : !!hubKey('torbox'),
   async refresh(force = false) {
     if (!torbox.connected()) return [];
     if (!force && Date.now() - torbox.loadedAt < 5 * 60e3) return torbox.list;
@@ -50,6 +58,7 @@ export const torbox = {
     return url;
   },
   async add(magnet) {
+    if (onEmpyrean()) return tb('torrents/createtorrent', { method: 'POST', body: { magnet } });
     const fd = new FormData(); fd.append('magnet', magnet);
     return tb('torrents/createtorrent', { method: 'POST', body: fd });
   },

@@ -23,6 +23,15 @@ export function loadConfig(env = process.env) {
     sessionSecret: secret,
     // Empyrean's own Trakt app (not secret; Beacon uses PKCE, no client secret). Unset = the UI's built-in ID.
     traktClientId: env.TRAKT_CLIENT_ID || null,
+    // The communal accounts (Sol's .env). Unset = that provider is off.
+    premiumizeKey: env.PREMIUMIZE_API_KEY || '',
+    torboxKey: env.TORBOX_API_KEY || '',
+    iptv: {
+      server: env.IPTV_SERVER || '',
+      username: env.IPTV_USERNAME || '',
+      password: env.IPTV_PASSWORD || '',
+      maxStreams: Number(env.IPTV_MAX_STREAMS || 1)
+    },
     sessionDays: Number(env.SESSION_DAYS || 30),
     cookieSecure: env.COOKIE_SECURE !== 'false',
     // Only trust X-Forwarded-For when a proxy we run (Caddy, tailscale serve) is in front.

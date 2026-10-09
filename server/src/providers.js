@@ -12,6 +12,7 @@
 'use strict';
 
 import { fetchUpstream, pipeMedia, UpstreamError } from './upstream.js';
+import { liveAudio } from './liveaudio.js';
 
 const PM_BASE = 'https://www.premiumize.me/api/';
 const TB_BASE = 'https://api.torbox.app/v1/api/';
@@ -26,6 +27,7 @@ export function providers({ config, vault, log = {} }) {
   const live = new Map(); // uid → { channel, at }: who is watching Live TV right now
   const PM = config.bases?.premiumize || PM_BASE, TB = config.bases?.torbox || TB_BASE; // tests point these at fakes
   const opts = { allowPrivate: !!config.allowPrivateUpstream };
+  const audio = liveAudio({ enabled: config.liveAudioFix !== false, log });
 
   const has = {
     premiumize: !!config.premiumizeKey,
@@ -33,8 +35,8 @@ export function providers({ config, vault, log = {} }) {
     iptv: !!(config.iptv?.server && config.iptv?.username && config.iptv?.password)
   };
 
-  function streamLink(url, uid, kind = 'file') {
-    return '/api/stream/' + vault.seal({ u: url, uid, k: kind }, STREAM_TTL);
+  function streamLink(url, uid, kind = 'file', ch) {
+    return '/api/stream/' + vault.seal({ u: url, uid, k: kind, ...(ch ? { ch } : {}) }, STREAM_TTL);
   }
 
   // Replace every provider media URL in a JSON response with a Beacon stream link.
@@ -129,7 +131,7 @@ export function providers({ config, vault, log = {} }) {
     live.set(user.id, { channel, at: now });
   }
 
-  async function hlsPlaylist(url, user) {
+  async function hlsPlaylist(url, user, ch) {
     const r = await fetchUpstream(url, {}, opts);
     if (!r.ok) throw new UpstreamError(r.status === 404 ? 404 : 502, `Live TV provider returned HTTP ${r.status}`);
     const base = r.url || url;
@@ -137,11 +139,15 @@ export function providers({ config, vault, log = {} }) {
     if (!text.startsWith('#EXTM3U')) throw new UpstreamError(502, 'Live TV provider sent something that is not a playlist');
     const link = ref => {
       const abs = new URL(ref, base).href;
-      return streamLink(abs, user.id, /\.m3u8(\?|$)/i.test(abs) ? 'hls' : 'file');
+      return streamLink(abs, user.id, /\.m3u8(\?|$)/i.test(abs) ? 'hls' : 'file', ch);
     };
     return text.split(/\r?\n/).map(line => {
       if (!line) return line;
-      if (line.startsWith('#')) return line.replace(/URI="([^"]+)"/g, (_, ref) => `URI="${link(ref)}"`);
+      if (line.startsWith('#')) {
+        line = line.replace(/URI="([^"]+)"/g, (_, ref) => `URI="${link(ref)}"`);
+        // Dolby audio is converted to AAC on the way through (liveaudio.js), so say so to the player.
+        return audio.on ? line.replace(/CODECS="([^"]*)"/, (_, c) => `CODECS="${c.replace(/\b(ac-3|ec-3)\b/g, 'mp4a.40.2')}"`) : line;
+      }
       return link(line.trim());
     }).join('\n');
   }
@@ -150,18 +156,28 @@ export function providers({ config, vault, log = {} }) {
     if (!/^\d{1,12}$/.test(id)) throw new UpstreamError(400, 'Bad channel');
     takeSlot(user, id);
     const a = config.iptv;
-    return hlsPlaylist(`${iptvBase()}/live/${encodeURIComponent(a.username)}/${encodeURIComponent(a.password)}/${id}.m3u8`, user);
+    return hlsPlaylist(`${iptvBase()}/live/${encodeURIComponent(a.username)}/${encodeURIComponent(a.password)}/${id}.m3u8`, user, id);
   }
 
   /* ---------- /api/stream/<token> ---------- */
   async function stream({ req, res, data, user }) {
     if (data.k === 'hls') {
       if (live.has(user.id)) live.get(user.id).at = Date.now();
-      const body = await hlsPlaylist(data.u, user);
+      const body = await hlsPlaylist(data.u, user, data.ch);
       res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
       return res.end(body);
     }
     if (live.has(user.id) && /\.(ts|m4s|aac|mp4)(\?|$)/i.test(data.u)) live.get(user.id).at = Date.now();
+    // Live TV MPEG-TS segments: fetched whole so their audio can be fixed for browsers if needed.
+    if (data.ch && audio.on && !/\.(key|bin|m4s|mp4|aac|vtt)(\?|$)/i.test(data.u)) {
+      const r = await fetchUpstream(data.u, {}, opts);
+      if (!r.ok) throw new UpstreamError(r.status === 404 ? 404 : 502, `Live TV provider returned HTTP ${r.status}`);
+      const seg = Buffer.from(await r.arrayBuffer());
+      const isTs = seg[0] === 0x47; // MPEG-TS sync byte
+      const body = isTs ? await audio.fix(data.ch, seg) : seg;
+      res.writeHead(200, { 'Content-Type': isTs ? 'video/mp2t' : (r.headers.get('content-type') || 'application/octet-stream'), 'Content-Length': body.length, 'Cache-Control': 'no-store' });
+      return res.end(req.method === 'HEAD' ? undefined : body);
+    }
     return pipeMedia(req, res, data.u, opts);
   }
 

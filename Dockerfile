@@ -2,6 +2,8 @@
 FROM node:24-alpine
 
 WORKDIR /app
+# ffmpeg: Live TV channels with Dolby (AC-3/E-AC-3) audio get it converted to AAC for browsers (liveaudio.js).
+RUN apk add --no-cache ffmpeg
 COPY server/package.json server/
 COPY server/src server/src
 COPY web web

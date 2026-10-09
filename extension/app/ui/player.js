@@ -273,8 +273,19 @@ function onError(err) {
     switchStream(session.alt, false);
     return;
   }
+  // Website: Beacon's server may have said why (viewer limit, Live TV slots, an expired link).
+  if (onEmpyrean() && /^\/api\//.test(session.usingUrl || '') && !err?.serverChecked) {
+    const s = session;
+    fetch(s.usingUrl, { headers: { Range: 'bytes=0-0' } }).then(async r => {
+      if (session !== s) return;
+      const why = r.ok ? '' : (await r.json().catch(() => ({}))).error || '';
+      r.body?.cancel?.();
+      onError({ ...err, code: err?.code, serverChecked: true, why });
+    }).catch(() => onError({ ...err, serverChecked: true }));
+    return;
+  }
   const code = err?.code;
-  const msg = code === 4 ? 'Chrome can’t play this file (usually HEVC/H.265 video Chrome can’t decode on this PC, or an AVI/WMV file).' : code === 2 ? 'The network connection to this stream failed.' : code === 3 ? 'The video couldn’t be decoded.' : 'This stream couldn’t be played.';
+  const msg = err?.why ? err.why : code === 4 ? 'Chrome can’t play this file (usually HEVC/H.265 video Chrome can’t decode on this PC, or an AVI/WMV file).' : code === 2 ? 'The network connection to this stream failed.' : code === 3 ? 'The video couldn’t be decoded.' : 'This stream couldn’t be played.';
   const s = session;
   ui.error.replaceChildren(h('div.err-box', icon('alert'), h('h3', msg), h('p', 'Try a browser-friendly Premiumize stream when available. Otherwise copy the link to VLC on your computer (Media → Open Network Stream). A desktop VLC window cannot be embedded inside a Chrome extension.'),
     h('div.err-actions',

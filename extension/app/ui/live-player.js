@@ -105,6 +105,13 @@ function attach(url) {
     hl.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(() => wake()));
     hl.on(Hls.Events.ERROR, (_e, d) => {
       if (!d.fatal || cur?.hls !== hl) return;
+      // Website: Beacon refused it (Live TV slots or the viewer limit): say why instead of reconnecting.
+      const st = d.response?.code;
+      if (st === 429 || st === 401) {
+        let why = ''; try { why = JSON.parse(d.networkDetails?.responseText || '{}').error || ''; } catch {}
+        fail(why || 'Beacon can’t start this channel right now.');
+        return;
+      }
       if (!mediaRecovered && d.type === Hls.ErrorTypes.MEDIA_ERROR) { mediaRecovered = true; hl.recoverMediaError(); return; }
       reconnect(d.details === 'manifestLoadError' ? 'The channel isn’t responding' : 'The stream dropped');
     });

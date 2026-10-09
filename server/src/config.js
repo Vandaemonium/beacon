@@ -26,6 +26,9 @@ export function loadConfig(env = process.env) {
     // The communal accounts (Sol's .env). Unset = that provider is off.
     premiumizeKey: env.PREMIUMIZE_API_KEY || '',
     torboxKey: env.TORBOX_API_KEY || '',
+    // How many people may watch through Beacon at once: every stream uses Sol's home upload
+    // (~37 Mbit/s measured 2026-10-09; a 1080p film is ~8 Mbit/s). Jellyfin shares that upload too.
+    maxViewers: Number(env.MAX_VIEWERS || 4),
     iptv: {
       server: env.IPTV_SERVER || '',
       username: env.IPTV_USERNAME || '',

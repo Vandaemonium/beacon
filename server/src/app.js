@@ -65,6 +65,28 @@ export function createApp({ config, jellyfin, store, log = console }) {
   const userCache = new Map();
   const vault = makeVault(config.sessionSecret);
   const prov = makeProviders({ config, vault, log });
+  // People watching right now (films, episodes, Live TV): an open stream, or a request in the last 20 s.
+  const viewers = new Map(); // uid → { open, at }
+  const VIEWER_IDLE_MS = 20e3;
+  function watching() {
+    const now = Date.now();
+    for (const [uid, v] of viewers) if (!v.open && now - v.at > VIEWER_IDLE_MS) viewers.delete(uid);
+    return viewers.size;
+  }
+  // → a release function, once the person has a viewer slot (refuses when Sol's upload is fully booked)
+  function enterViewer(user, res) {
+    const max = config.maxViewers || 4;
+    if (!viewers.has(user.id) && watching() >= max) {
+      throw new HttpError(429, `Beacon is at its limit of ${max} people watching right now (Sol's upload is shared). Try again in a little while.`);
+    }
+    const v = viewers.get(user.id) || { open: 0, at: 0 };
+    v.open++; v.at = Date.now(); viewers.set(user.id, v);
+    let done = false;
+    const leave = () => { if (done) return; done = true; v.open--; v.at = Date.now(); };
+    res.on('close', leave);
+    return leave;
+  }
+
   const conv = makeConverter({ maxTotal: config.convertMax || 10, maxPerUser: config.convertPerUser || 2, log });
 
   async function jellyfinUser(uid) {
@@ -194,7 +216,8 @@ export function createApp({ config, jellyfin, store, log = console }) {
         traktClientId: config.traktClientId,
         providers: prov.has,
         streamKey: vault.seal({ uid: me.id, k: 'key' }, 12 * 3600e3),
-        live: prov.liveSlots()
+        live: prov.liveSlots(),
+        viewers: { watching: watching(), max: config.maxViewers || 4 }
       };
     },
 
@@ -289,6 +312,7 @@ export function createApp({ config, jellyfin, store, log = console }) {
       const keyData = key ? vault.open(key) : null;
       if (key && keyData?.k !== 'key') throw new HttpError(401, 'This Live TV link has expired. Open the channel again in Beacon.');
       const user = key ? await tokenUser(keyData) : await requireUser(req);
+      enterViewer(user, res);
       const body = await prov.iptvLive({ user, id: liveM[1] });
       res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
       res.end(body);
@@ -299,14 +323,14 @@ export function createApp({ config, jellyfin, store, log = console }) {
       const data = vault.open(token);
       if (!data || !data.u || extra !== undefined) throw new HttpError(401, 'This link has expired. Start the video again in Beacon.');
       const user = await tokenUser(data);
-      if (!sub) { await prov.stream({ req, res, data, user }); return DONE; }
+      if (!sub) { enterViewer(user, res); await prov.stream({ req, res, data, user }); return DONE; }
       if (data.k !== 'file' || data.ch) throw new HttpError(404, 'Only films and episodes can have their audio converted');
       // ffmpeg reads the original through this same server, so Range requests and the VPN still apply.
       const localUrl = `http://127.0.0.1:${req.socket.localPort}/api/stream/${token}`;
       try {
         if (sub === 'info') return await conv.probe(localUrl, data.u);
         if (sub === 'start') return { start: await conv.keyframe(localUrl, Number(searchParams.get('t')) || 0) };
-        if (sub === 'aac') { await conv.stream({ req, res, localUrl, key: data.u, user, start: searchParams.get('t') }); return DONE; }
+        if (sub === 'aac') { enterViewer(user, res); await conv.stream({ req, res, localUrl, key: data.u, user, start: searchParams.get('t') }); return DONE; }
       } catch (e) {
         if (e instanceof HttpError || res.headersSent) throw e;
         throw new HttpError(e.status || 502, e.message);

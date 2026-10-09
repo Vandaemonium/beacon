@@ -8,6 +8,7 @@
  *                               exist, and a stream key for VLC-openable Live TV links
  *   /api/pm, /api/tb, /api/iptv, /api/stream   the communal accounts (see providers.js)
  *   GET  /api/stream/<token>/info, /aac?t=   Sol converts Dolby/DTS audio to AAC (see convert.js)
+ *   GET  /api/admin/activity    today's numbers and the latest events (admins only; see monitor.js)
  *   GET  /api/netcheck          the address Sol's provider traffic leaves from
  *   GET  /api/compat            viewers' reports: which releases really had sound in the browser
  *   POST /api/compat/report     { title, sound } from the player after a few seconds of playback
@@ -60,7 +61,9 @@ class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-export function createApp({ config, jellyfin, store, log = console }) {
+const NO_MONITOR = new Proxy({}, { get: () => () => undefined });
+
+export function createApp({ config, jellyfin, store, log = console, monitor: mon = NO_MONITOR }) {
   const limiter = failureLimiter();
   const userCache = new Map();
   const vault = makeVault(config.sessionSecret);
@@ -74,12 +77,16 @@ export function createApp({ config, jellyfin, store, log = console }) {
     return viewers.size;
   }
   // → a release function, once the person has a viewer slot (refuses when Sol's upload is fully booked)
-  function enterViewer(user, res) {
+  function enterViewer(user, res, what = 'film') {
     const max = config.maxViewers || 4;
-    if (!viewers.has(user.id) && watching() >= max) {
-      throw new HttpError(429, `Beacon is at its limit of ${max} people watching right now (Sol's upload is shared). Try again in a little while.`);
+    const isNew = !viewers.has(user.id);
+    if (isNew && watching() >= max) {
+      const msg = `Beacon is at its limit of ${max} people watching right now (Sol's upload is shared). Try again in a little while.`;
+      mon.limit('viewers', user.name, msg);
+      throw new HttpError(429, msg);
     }
     const v = viewers.get(user.id) || { open: 0, at: 0 };
+    if (isNew) setImmediate(() => mon.watch(user.name, what, watching(), max));
     v.open++; v.at = Date.now(); viewers.set(user.id, v);
     let done = false;
     const leave = () => { if (done) return; done = true; v.open--; v.at = Date.now(); };
@@ -87,7 +94,7 @@ export function createApp({ config, jellyfin, store, log = console }) {
     return leave;
   }
 
-  const conv = makeConverter({ maxTotal: config.convertMax || 10, maxPerUser: config.convertPerUser || 2, log });
+  const conv = makeConverter({ maxTotal: config.convertMax || 10, maxPerUser: config.convertPerUser || 2, log, onStart: (user, codec) => mon.conversion(user.name, codec) });
 
   async function jellyfinUser(uid) {
     const hit = userCache.get(uid);
@@ -189,6 +196,7 @@ export function createApp({ config, jellyfin, store, log = console }) {
       const user = await jellyfin.authenticate(username, password);
       if (!user) {
         limiter.fail(ip);
+        mon.login(false, username);
         log.info?.(`login failed for "${username}" from ${ip}`);
         throw new HttpError(401, 'Wrong username or password');
       }
@@ -199,6 +207,7 @@ export function createApp({ config, jellyfin, store, log = console }) {
         throw new HttpError(403, "Your Jellyfin account works, but it isn't on Beacon's list yet. Ask the admin to add you.");
       }
       log.info?.(`login ok: ${user.name} from ${ip}`);
+      mon.login(true, user.name);
       const token = issue(user, { secret: config.sessionSecret, days: config.sessionDays });
       res.setHeader('Set-Cookie', cookieHeader(token, { secure: config.cookieSecure, maxAgeSeconds: config.sessionDays * 86400 }));
       return { id: user.id, name: user.name, admin: user.admin };
@@ -238,7 +247,7 @@ export function createApp({ config, jellyfin, store, log = console }) {
       const key = compatKey(title);
       if (!key || typeof sound !== 'boolean') throw new HttpError(400, 'Need { title, sound }');
       const r = store.reportCompat(key, sound);
-      if (!sound) log.info?.(`no sound in browser: "${String(title).slice(0, 120)}" (reported by ${me.name})`);
+      if (!sound) { log.info?.(`no sound in browser: "${String(title).slice(0, 120)}" (reported by ${me.name})`); mon.silent(String(title).slice(0, 160), me.name); }
       return r;
     },
 
@@ -259,6 +268,11 @@ export function createApp({ config, jellyfin, store, log = console }) {
     'GET /api/me': async req => {
       const u = await requireUser(req);
       return { id: u.id, name: u.name, admin: u.admin };
+    },
+
+    'GET /api/admin/activity': async req => {
+      await requireUser(req, { admin: true });
+      return { today: mon.today() || null, recent: mon.recent() || [], viewers: { watching: watching(), max: config.maxViewers || 4 }, live: prov.liveSlots() };
     },
 
     'GET /api/admin/users': async req => {
@@ -312,8 +326,9 @@ export function createApp({ config, jellyfin, store, log = console }) {
       const keyData = key ? vault.open(key) : null;
       if (key && keyData?.k !== 'key') throw new HttpError(401, 'This Live TV link has expired. Open the channel again in Beacon.');
       const user = key ? await tokenUser(keyData) : await requireUser(req);
-      enterViewer(user, res);
-      const body = await prov.iptvLive({ user, id: liveM[1] });
+      enterViewer(user, res, 'live');
+      let body;
+      try { body = await prov.iptvLive({ user, id: liveM[1] }); } catch (e) { if (e.status === 429) mon.limit('live', user.name, e.message); throw e; }
       res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
       res.end(body);
       return DONE;
@@ -332,6 +347,7 @@ export function createApp({ config, jellyfin, store, log = console }) {
         if (sub === 'start') return { start: await conv.keyframe(localUrl, Number(searchParams.get('t')) || 0) };
         if (sub === 'aac') { enterViewer(user, res); await conv.stream({ req, res, localUrl, key: data.u, user, start: searchParams.get('t') }); return DONE; }
       } catch (e) {
+        if (e.status === 429 && /converting|films converting/.test(e.message)) mon.limit('conversions', user.name, e.message);
         if (e instanceof HttpError || res.headersSent) throw e;
         throw new HttpError(e.status || 502, e.message);
       }
@@ -385,11 +401,26 @@ export function createApp({ config, jellyfin, store, log = console }) {
       return await serveStatic(req, res, pathname);
     } catch (e) {
       if (res.headersSent) return res.destroy();
+      const where = pathname.split('/').slice(0, 3).join('/') || pathname;
+      if (e instanceof UpstreamError && e.status >= 500) mon.error(where, e.message);
       if (e instanceof HttpError || e instanceof UpstreamError) return send(res, e.status, { error: e.message });
       log.error?.(`${req.method} ${pathname} failed:`, e.message);
+      mon.error(where, e.message);
       return send(res, 502, { error: 'Beacon could not reach a service it needs. Try again shortly.' });
     }
   }
 
-  return createServer((req, res) => { handle(req, res); });
+  // Days left on the shared accounts, for the daily summary (null where unknown or not set up).
+  async function accounts() {
+    const sys = { id: 'system', name: 'Beacon', admin: true };
+    const left = ts => ts ? Math.floor((Number(ts) * 1000 - Date.now()) / 864e5) : NaN;
+    const out = [];
+    if (prov.has.premiumize) out.push({ name: 'Premiumize', daysLeft: await prov.premiumize({ user: sys, method: 'GET', path: 'account/info', query: new URLSearchParams() }).then(a => left(a.premium_until)).catch(() => NaN) });
+    if (prov.has.iptv) out.push({ name: 'IPTV', daysLeft: await prov.iptvApi({ user: sys, query: new URLSearchParams() }).then(a => left(a.user_info?.exp_date)).catch(() => NaN) });
+    return out;
+  }
+
+  const server = createServer((req, res) => { handle(req, res); });
+  server.beacon = { accounts };
+  return server;
 }

@@ -10,8 +10,10 @@ import { join } from 'node:path';
 import { createApp } from '../src/app.js';
 import { jellyfinClient } from '../src/jellyfin.js';
 import { openStore } from '../src/store.js';
+import { monitor } from '../src/monitor.js';
 
 let jf, fake, app, base, dataDir, admin, friend;
+const sent = [];
 const listen = s => new Promise(r => s.listen(0, '127.0.0.1', () => r(s)));
 const json = (res, v, st = 200) => { res.writeHead(st, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(v)); };
 
@@ -46,7 +48,8 @@ before(async () => {
     premiumizeKey: 'k', iptv: {}, bases: { premiumize: `http://127.0.0.1:${fake.address().port}/pm/` }, allowPrivateUpstream: true,
     maxViewers: 1
   };
-  app = createApp({ config, jellyfin: jellyfinClient({ url: `http://127.0.0.1:${jf.address().port}`, apiKey: 'k' }), store: openStore(dataDir), log: {} });
+  const mon = monitor({ dataDir, post: async b => { sent.push(b); return { ok: true }; } });
+  app = createApp({ config, jellyfin: jellyfinClient({ url: `http://127.0.0.1:${jf.address().port}`, apiKey: 'k' }), store: openStore(dataDir), log: {}, monitor: mon });
   await listen(app);
   base = `http://127.0.0.1:${app.address().port}`;
   const login = async (username, password) => (await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) })).headers.get('set-cookie').split(';')[0];
@@ -72,4 +75,14 @@ test('with room for 1, a second person waits; the first can still open more stre
   const cfg = await (await fetch(base + '/api/config', { headers: { Cookie: admin } })).json();
   assert.deepEqual(cfg.viewers, { watching: 1, max: 1 });
   a.abort();
+});
+
+test("turning someone away reaches Discord and the admin's activity page; coworkers can't see it", async () => {
+  await new Promise(r => setTimeout(r, 50));
+  assert.ok(sent.some(s => s.title === '🚦 Beacon is full' && /coworker was turned away/.test(s.text)), JSON.stringify(sent));
+  const act = await (await fetch(base + '/api/admin/activity', { headers: { Cookie: admin } })).json();
+  assert.equal(act.today.limitHits.viewers, 1);
+  assert.ok(act.today.watchers.cory >= 1);
+  assert.ok(act.recent.some(e => e.kind === 'limit'));
+  assert.equal((await fetch(base + '/api/admin/activity', { headers: { Cookie: friend } })).status, 403);
 });

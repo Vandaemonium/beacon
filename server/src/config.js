@@ -29,6 +29,9 @@ export function loadConfig(env = process.env) {
     // How many people may watch through Beacon at once: every stream uses Sol's home upload
     // (~37 Mbit/s measured 2026-10-09; a 1080p film is ~8 Mbit/s). Jellyfin shares that upload too.
     maxViewers: Number(env.MAX_VIEWERS || 4),
+    // Alerts and the daily summary: n8n's activity webhook (-> Discord). Unset = none.
+    notifyUrl: env.NOTIFY_URL || '',
+    digestHour: Number(env.DIGEST_HOUR || 21),
     iptv: {
       server: env.IPTV_SERVER || '',
       username: env.IPTV_USERNAME || '',

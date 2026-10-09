@@ -45,6 +45,33 @@ async function loadUsers() {
   }));
 }
 
+const KIND = { login: '🔑', 'login-failed': '⛔', watch: '▶', convert: '🎧', limit: '🚦', silent: '🔇', error: '⚠️' };
+async function loadActivity() {
+  let a;
+  try { a = await api('admin/activity'); } catch { return; }
+  const d = a.today || {};
+  $('act-now').textContent = `${a.viewers.watching} of ${a.viewers.max} watching now · Live TV ${a.live.inUse} of ${a.live.max} slots`;
+  const hits = Object.values(d.limitHits || {}).reduce((s, n) => s + n, 0);
+  const rows = [
+    ['Watched', Object.entries(d.watchers || {}).map(([n, c]) => `${n} (${c})`).join(', ') || 'nobody yet'],
+    ['Plays', `${d.films || 0} films · ${d.live || 0} Live TV · ${d.conversions || 0} audio converted`],
+    ['Peak at once', `${d.peakViewers || 0} of ${a.viewers.max}`],
+    ['Turned away', String(hits)],
+    ['No sound reported', String((d.silent || []).length)],
+    ['Errors', String(d.errors || 0)],
+    ['Sign-ins', `${d.logins || 0}${d.failedLogins ? ` · ${d.failedLogins} failed` : ''}`]
+  ];
+  $('act-stats').replaceChildren(...rows.flatMap(([k, v]) => { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; return [dt, dd]; }));
+  $('act-events').replaceChildren(...(a.recent || []).slice(0, 15).map(e => {
+    const li = document.createElement('li');
+    const time = document.createElement('span'); time.className = 'muted';
+    time.textContent = new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    li.append(time, ` ${KIND[e.kind] || '·'} ${e.text}`);
+    return li;
+  }));
+  if (!a.recent?.length) $('act-events').replaceChildren(Object.assign(document.createElement('li'), { className: 'muted', textContent: 'Nothing yet today.' }));
+}
+
 async function start() {
   show('loading', false);
   try {
@@ -53,10 +80,12 @@ async function start() {
     show('login', false);
     show('home', true);
     show('admin', me.admin);
-    if (me.admin) loadUsers();
+    show('activity', me.admin);
+    if (me.admin) { loadUsers(); loadActivity(); clearInterval(start.timer); start.timer = setInterval(loadActivity, 30000); }
   } catch {
     show('home', false);
     show('admin', false);
+    show('activity', false);
     show('login', true);
   }
 }

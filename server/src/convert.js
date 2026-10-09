@@ -25,7 +25,7 @@ function cleanEnv() {
   return env;
 }
 
-export function converter({ maxTotal = 10, maxPerUser = 2, log = {} } = {}) {
+export function converter({ maxTotal = 10, maxPerUser = 2, log = {}, onStart = () => {} } = {}) {
   const info = new Map();    // original URL → { at, value }
   const active = new Map();  // uid → count
   let total = 0;
@@ -108,6 +108,7 @@ export function converter({ maxTotal = 10, maxPerUser = 2, log = {} } = {}) {
     const err = [];
     p.stderr.on('data', c => { if (err.length < 20) err.push(c); });
     log.info?.(`converting audio for ${user.name} from ${Math.round(t)} s (${meta.audio[track]?.codec || 'no audio'} → aac)`);
+    if (t < 1) onStart(user, meta.audio[track]?.codec); // a new play, not a seek
     res.writeHead(200, { 'Content-Type': 'video/mp4', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Beacon-Start': t.toFixed(2) });
     p.stdout.pipe(res);
     const stop = () => { release(); if (p.exitCode === null) p.kill('SIGKILL'); };

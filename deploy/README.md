@@ -12,6 +12,10 @@ checkout of this repo at `~/beacon` on Sol. During the build-out it is **tailnet
 | `BEACON_SESSION_SECRET` | 48+ random characters; signs login cookies. Changing it signs everyone out. |
 | `BEACON_TRAKT_CLIENT_ID` | Client ID of the "Empyrean Beacon" Trakt app (not secret). Its Redirect URIs: `https://sol.tail5afeac.ts.net:8445/beacon.html`, `https://beacon.empyrean.cc/beacon.html`. |
 
+| `BEACON_PREMIUMIZE_API_KEY`, `BEACON_TORBOX_API_KEY` | The communal accounts (Barr's). Unset = that provider is off. |
+| `BEACON_IPTV_SERVER`, `BEACON_IPTV_USERNAME`, `BEACON_IPTV_PASSWORD` | The communal Live TV login. Never reaches a browser. |
+| `BEACON_IPTV_MAX_STREAMS` | How many Live TV streams the plan allows at once (3 as of 2026-10-09). |
+
 Make the session secret with `openssl rand -base64 48`.
 
 ## compose.yaml
@@ -27,6 +31,17 @@ Make the session secret with `openssl rand -base64 48`.
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:?set in .env}
       SESSION_SECRET: ${BEACON_SESSION_SECRET:?set in .env}
       TRAKT_CLIENT_ID: ${BEACON_TRAKT_CLIENT_ID:-}   # Empyrean Beacon Trakt app
+      PREMIUMIZE_API_KEY: ${BEACON_PREMIUMIZE_API_KEY:-}
+      TORBOX_API_KEY: ${BEACON_TORBOX_API_KEY:-}
+      IPTV_SERVER: ${BEACON_IPTV_SERVER:-}
+      IPTV_USERNAME: ${BEACON_IPTV_USERNAME:-}
+      IPTV_PASSWORD: ${BEACON_IPTV_PASSWORD:-}
+      IPTV_MAX_STREAMS: ${BEACON_IPTV_MAX_STREAMS:-1}
+      # Everything outside Sol goes through Gluetun (ProtonVPN); fails closed if the VPN is down.
+      NODE_USE_ENV_PROXY: "1"
+      HTTP_PROXY: http://gluetun:8888
+      HTTPS_PROXY: http://gluetun:8888
+      NO_PROXY: host.docker.internal,localhost,127.0.0.1
     extra_hosts:
       - host.docker.internal:host-gateway
     ports:
@@ -37,7 +52,10 @@ Make the session secret with `openssl rand -base64 48`.
     restart: unless-stopped
 ```
 
-Step 4 moves it into Gluetun's network so provider traffic leaves through ProtonVPN.
+Gluetun needs `HTTPPROXY: "on"` (port 8888, reachable only on the Docker network). Beacon stays on
+the normal network so it can reach Jellyfin; everything else goes through the proxy. Check it with
+Settings → Connection & VPN, or `docker exec beacon node -e "fetch('https://ipinfo.io/org').then(r=>r.text()).then(console.log)"`
+(should say Datacamp/Proton, not Comcast).
 
 ## Tailnet address
 

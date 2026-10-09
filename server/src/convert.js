@@ -3,8 +3,12 @@
  * 2026-10-09: 2.4% of one core for DD+ 5.1, 4.6% for TrueHD 7.1, per viewer).
  *
  *   GET /api/stream/<token>/info      → { duration, video, audio: [{ index, codec, channels, default }] }
- *   GET /api/stream/<token>/aac?t=S   the film from S seconds: fragmented MP4, H.264/HEVC copied + AAC
+ *   GET /api/stream/<token>/start?t=S → { start }: the keyframe at or before S where the stream really begins
+ *   GET /api/stream/<token>/aac?t=S   the film from that keyframe: fragmented MP4, H.264/HEVC copied + AAC
  *                                     stereo. Seeking = a new request with a new t (the player handles it).
+ * Sync: copied video can only start on a keyframe, often seconds before S. With -copyts (as Live TV does)
+ * the audio starts at that same keyframe instead of exactly at S, so they stay together; /start tells the
+ * player where that is, so its clock stays right.
  * ffmpeg reads the original through Beacon's own /api/stream/<token> on 127.0.0.1, so it gets Range
  * requests and the VPN for free, and never sees a provider URL.
  */
@@ -51,6 +55,24 @@ export function converter({ maxTotal = 10, maxPerUser = 2, log = {} } = {}) {
     return value;
   }
 
+  // The keyframe ffmpeg's seek to t lands on (same demuxer seek), in film seconds.
+  async function keyframe(localUrl, t) {
+    if (!(t > 0)) return 0;
+    return new Promise(resolve => {
+      const p = spawn('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-skip_frame', 'nokey', '-read_intervals', `${t}%+#1`,
+        '-show_entries', 'frame=pts_time,pkt_dts_time', '-of', 'csv=p=0', '-i', localUrl], { env: cleanEnv() });
+      const chunks = [];
+      const timer = setTimeout(() => { p.kill('SIGKILL'); resolve(t); }, 30000);
+      p.stdout.on('data', c => chunks.push(c));
+      p.on('error', () => { clearTimeout(timer); resolve(t); });
+      p.on('close', () => {
+        clearTimeout(timer);
+        const k = Number(Buffer.concat(chunks).toString().split(/[\n,]/).map(s => s.trim()).find(s => s && s !== 'N/A'));
+        resolve(Number.isFinite(k) && k <= t + 0.5 && k > t - 30 ? Math.max(0, k) : t);
+      });
+    });
+  }
+
   // → true if the slot was taken; release() must be called when the stream ends
   function take(uid) {
     const mine = active.get(uid) || 0;
@@ -69,7 +91,9 @@ export function converter({ maxTotal = 10, maxPerUser = 2, log = {} } = {}) {
     if (typeof release === 'string') throw Object.assign(new Error(release), { status: 429 });
     const t = Math.max(0, Math.min(Number(start) || 0, Math.max(0, meta.duration - 1)));
     const args = ['-n', '10', 'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin',
-      '-ss', t.toFixed(2), '-i', localUrl,
+      // -noaccurate_seek: the audio also starts at the keyframe (not exactly at t), so both tracks begin
+      // together with no gap; -copyts keeps their timestamps aligned to the source, as Live TV does.
+      '-ss', t.toFixed(3), '-noaccurate_seek', '-copyts', '-i', localUrl,
       '-map', '0:v:0', ...(meta.audio.length ? ['-map', `0:a:${track}`] : []),
       '-c:v', 'copy', ...(meta.video === 'hevc' ? ['-tag:v', 'hvc1'] : []),
       '-c:a', 'aac', '-b:a', '192k', '-ac', '2', '-sn', '-dn',
@@ -91,5 +115,5 @@ export function converter({ maxTotal = 10, maxPerUser = 2, log = {} } = {}) {
     }));
   }
 
-  return { probe, stream, busy: () => ({ total, maxTotal }) };
+  return { probe, keyframe, stream, busy: () => ({ total, maxTotal }) };
 }

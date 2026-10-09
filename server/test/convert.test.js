@@ -14,7 +14,7 @@ import { openStore } from '../src/store.js';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
 const skip = !hasFfmpeg && 'ffmpeg not installed';
-let film, jf, fake, app, base, dataDir, cookie, friendCookie;
+let film, syncFilm, jf, fake, app, base, dataDir, cookie, friendCookie;
 
 const listen = s => new Promise(r => s.listen(0, '127.0.0.1', () => r(s)));
 const json = (res, st, v) => { res.writeHead(st, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(v)); };
@@ -37,6 +37,15 @@ before(async () => {
     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=30', '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '25',
     '-c:a', 'ac3', '-ac', '6', '-y', filmPath]);
   film = readFileSync(filmPath);
+  // Sync check film: a white flash and a 1 kHz beep on every whole second, keyframes only every 10 s
+  // (the hard case: a seek to 17 s can only start the copied video at 10 s).
+  const syncPath = join(dataDir, 'sync.mkv');
+  spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error',
+    '-f', 'lavfi', '-i', "color=c=black:s=320x240:r=25:d=40,drawbox=x=0:y=0:w=iw:h=ih:color=white:t=fill:enable='lt(mod(t,1),0.12)'",
+    '-f', 'lavfi', '-i', "sine=f=1000:d=40:sample_rate=48000,volume='if(lt(mod(t,1),0.12),1,0)':eval=frame",
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '250', '-keyint_min', '250', '-sc_threshold', '0', '-pix_fmt', 'yuv420p',
+    '-c:a', 'ac3', '-ac', '2', '-y', syncPath]);
+  syncFilm = readFileSync(syncPath);
   const users = {
     'u-admin': { Id: 'u-admin', Name: 'cory', pw: 'a', Policy: { IsAdministrator: true } },
     'u-friend': { Id: 'u-friend', Name: 'coworker', pw: 'f', Policy: { IsAdministrator: false } }
@@ -54,12 +63,16 @@ before(async () => {
     json(res, 204, {});
   }));
   fake = await listen(createServer((req, res) => {
-    if (req.url.startsWith('/pm/')) return json(res, 200, { status: 'success', link: `http://127.0.0.1:${fake.address().port}/film.mkv` });
-    if (req.url !== '/film.mkv') return json(res, 404, {});
+    if (req.url.startsWith('/pm/')) {
+      const id = new URL(req.url, 'http://x').searchParams.get('id') === 'sync' ? 'sync' : 'film';
+      return json(res, 200, { status: 'success', link: `http://127.0.0.1:${fake.address().port}/${id}.mkv` });
+    }
+    const body = req.url === '/film.mkv' ? film : req.url === '/sync.mkv' ? syncFilm : null;
+    if (!body) return json(res, 404, {});
     const m = /bytes=(\d+)-(\d*)/.exec(req.headers.range || '');
-    const s = m ? Number(m[1]) : 0, e = m && m[2] ? Number(m[2]) : film.length - 1;
-    res.writeHead(m ? 206 : 200, { 'Content-Type': 'video/x-matroska', 'Accept-Ranges': 'bytes', 'Content-Length': e - s + 1, ...(m ? { 'Content-Range': `bytes ${s}-${e}/${film.length}` } : {}) });
-    res.end(film.subarray(s, e + 1));
+    const s = m ? Number(m[1]) : 0, e = m && m[2] ? Number(m[2]) : body.length - 1;
+    res.writeHead(m ? 206 : 200, { 'Content-Type': 'video/x-matroska', 'Accept-Ranges': 'bytes', 'Content-Length': e - s + 1, ...(m ? { 'Content-Range': `bytes ${s}-${e}/${body.length}` } : {}) });
+    res.end(body.subarray(s, e + 1));
   }));
   const config = {
     webDir: new URL('../../web/', import.meta.url).pathname, appDir: new URL('../../extension/', import.meta.url).pathname,
@@ -78,7 +91,17 @@ before(async () => {
 
 after(() => { app?.close(); jf?.close(); fake?.close(); if (dataDir) rmSync(dataDir, { recursive: true, force: true }); });
 
-const linkFor = async c => (await (await fetch(base + '/api/pm/item/details?id=x', { headers: { Cookie: c } })).json()).link;
+const linkFor = async (c, id = 'x') => (await (await fetch(base + '/api/pm/item/details?id=' + id, { headers: { Cookie: c } })).json()).link;
+
+// Onset times (s) of the flashes and of the beeps in a converted file.
+function onsets(file) {
+  const v = spawnSync('ffprobe', ['-v', 'error', '-f', 'lavfi', '-i', `movie=${file},signalstats`, '-show_entries', 'frame=pts_time:frame_tags=lavfi.signalstats.YAVG', '-of', 'csv=p=0'], { maxBuffer: 1e8 })
+    .stdout.toString().trim().split('\n').map(l => l.split(',').map(Number));
+  const flashes = v.filter(([, y], i) => y > 128 && !(v[i - 1]?.[1] > 128)).map(([t]) => t);
+  const a = spawnSync('ffmpeg', ['-hide_banner', '-i', file, '-af', 'silencedetect=noise=-30dB:d=0.05', '-f', 'null', '-'], { maxBuffer: 1e8 }).stderr.toString();
+  const beeps = [...a.matchAll(/silence_end: ([\d.]+)/g)].map(m => Number(m[1]));
+  return { flashes, beeps };
+}
 
 test('info reports the length and the audio tracks', { skip }, async () => {
   const link = await linkFor(cookie);
@@ -118,4 +141,23 @@ test('conversion links stop working once the person is removed', { skip }, async
   assert.equal((await fetch(base + link + '/aac?t=0')).status, 401);
   assert.equal((await fetch(base + link + '/info')).status, 401);
   assert.equal((await fetch(base + link + '/nope/extra')).status, 401);
+});
+
+test('after a seek between keyframes, picture and sound stay together, and /start says where it begins', { skip }, async () => {
+  const link = await linkFor(cookie, 'sync');
+  const { start } = await (await fetch(base + link + '/start?t=17')).json();
+  assert.ok(Math.abs(start - 10) < 0.2, `start ${start}: the keyframe before 17 s is at 10 s`);
+  const r = await fetch(base + link + '/aac?t=17');
+  const f = join(dataDir, 'sync-out.mp4');
+  writeFileSync(f, Buffer.from(await r.arrayBuffer()));
+  // (From 0.5 s: a beep already sounding when the stream starts has no silence before it to detect.)
+  const all = onsets(f);
+  const flashes = all.flashes.filter(x => x > 0.5), beeps = all.beeps;
+  assert.ok(flashes.length >= 5 && beeps.length >= 5, `found ${flashes.length} flashes, ${beeps.length} beeps`);
+  for (let i = 0; i < 5; i++) {
+    const near = beeps.reduce((b, x) => Math.abs(x - flashes[i]) < Math.abs(b - flashes[i]) ? x : b, Infinity);
+    assert.ok(Math.abs(near - flashes[i]) < 0.1, `flash at ${flashes[i]} s, nearest beep at ${near} s`);
+  }
+  // The player shows start + element time: a flash must land on a whole second of film time.
+  for (const x of flashes.slice(0, 5)) assert.ok(Math.abs(((start + x) % 1 + 1) % 1 - 0) < 0.1 || Math.abs((start + x) % 1 - 1) < 0.1, `flash at film time ${start + x}`);
 });

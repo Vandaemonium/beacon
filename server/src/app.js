@@ -305,6 +305,7 @@ export function createApp({ config, jellyfin, store, log = console }) {
       const localUrl = `http://127.0.0.1:${req.socket.localPort}/api/stream/${token}`;
       try {
         if (sub === 'info') return await conv.probe(localUrl, data.u);
+        if (sub === 'start') return { start: await conv.keyframe(localUrl, Number(searchParams.get('t')) || 0) };
         if (sub === 'aac') { await conv.stream({ req, res, localUrl, key: data.u, user, start: searchParams.get('t') }); return DONE; }
       } catch (e) {
         if (e instanceof HttpError || res.headersSent) throw e;

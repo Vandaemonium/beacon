@@ -47,13 +47,19 @@ async function useConverted(at) {
   ui.sourceLabel.textContent = s.label + ' · audio converted on Sol';
   return true;
 }
-function startConverted(t) {
-  const c = session?.conv;
+async function startConverted(t) {
+  const s = session, c = s?.conv;
   if (!c) return;
-  c.offset = Math.max(0, Math.min(t || 0, c.duration - 1));
-  session.restoring = true; session.resumeAt = 0; session.resumePct = 0;
+  const want = Math.max(0, Math.min(t || 0, c.duration - 1));
+  s.restoring = true; s.resumeAt = 0; s.resumePct = 0;
   ui.root.classList.remove('has-error'); ui.root.classList.add('buffering');
-  attach(`${session.url}/aac?t=${c.offset.toFixed(1)}`);
+  // Copied video starts on a keyframe, often seconds before `want`; Sol starts the audio there too (in
+  // sync) and says where that is, so the clock shows the film's real time.
+  let start = want;
+  try { const r = await fetch(`${s.url}/start?t=${want.toFixed(3)}`); if (r.ok) start = Number((await r.json()).start); } catch {}
+  if (session !== s || s.conv !== c) return;
+  c.offset = Number.isFinite(start) && start <= want + 0.5 ? start : want;
+  attach(`${s.url}/aac?t=${want.toFixed(3)}`);
 }
 
 function build() {

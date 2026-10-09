@@ -3,7 +3,7 @@
  * to decide whether a source will play inside this browser or would need an external player such as VLC.
  */
 'use strict';
-import { prefs } from './store.js';
+import { prefs, onEmpyrean } from './store.js';
 
 // Movies and episodes play as plain files (<video src>), so only canPlayType counts. MediaSource support
 // (streaming, used by Live TV) is a different path: some Chrome builds accept Dolby there but have no
@@ -121,8 +121,12 @@ export function judge(name) {
 /** Is this source playable inside Beacon Hub (possibly through Premiumize's browser-friendly stream)? */
 export function sourceCompat(src) {
   const r = reported(src.title);
-  if (r) return judge(src.title);
-  const j = judge([src.title, src.filenameHint, src.label].filter(Boolean).join(' '));
+  const j = r ? judge(src.title) : judge([src.title, src.filenameHint, src.label].filter(Boolean).join(' '));
+  // Website: when audio is the only problem, Sol converts it to AAC while streaming (player.js), so it plays.
+  if (onEmpyrean() && j.verdict === 'no' && j.problems.length && j.problems.every(p => /audio|no sound/i.test(p))) {
+    return { ...j, verdict: 'ok', viaSol: true };
+  }
+  if (r) return j;
   // Premiumize already has a browser-friendly (transcoded) copy → plays regardless of the original's codecs.
   if (j.verdict !== 'ok' && src.transcoded) return { ...j, verdict: 'ok', viaFriendly: true };
   // Your own cloud files: Premiumize can usually serve a browser-friendly copy, so never hide them.

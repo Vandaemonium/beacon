@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 globalThis.window = {};
 globalThis.document = { createElement: () => ({ canPlayType: () => '' }) };
 globalThis.localStorage = { getItem: () => null, setItem() {} };
+globalThis.location = { protocol: 'chrome-extension:' }; // as the extension; the website test switches to https
 const { caps, judge, sourceCompat, setReports, releaseKey } = await import('../../extension/app/lib/compat.js');
 const CHROME = { h264: true, hevc: true, av1: true, vp9: true, dv: false, aac: true, ac3: false, eac3: false, dts: false, truehd: false, opus: true, flac: true };
 const reset = (extra = {}) => { Object.assign(caps, CHROME, extra); setReports({}); };
@@ -63,4 +64,17 @@ test('release keys match the server (letters and digits, single spaces, no exten
   for (const n of ['Movie.2024.1080p.WEB-DL.H264.AAC-GRP.mkv', 'Movie (2024) [1080p] x265 AAC 5.1', '  Odd__Name--Here  ']) {
     assert.equal(releaseKey(n), compatKey(n), n);
   }
+});
+
+test('website: audio-only problems play, because Sol converts the audio; video problems still do not', () => {
+  reset();
+  location.protocol = 'https:';
+  try {
+    const dd = sourceCompat({ title: 'Movie 2024 1080p WEB-DL DDP5.1 H.264-GRP' });
+    assert.equal(dd.verdict, 'ok');
+    assert.equal(dd.viaSol, true);
+    assert.equal(sourceCompat({ title: 'Movie.2024.1080p.BluRay.TrueHD.7.1.x264' }).viaSol, true);
+    assert.equal(sourceCompat({ title: 'Movie 2004 DVDRip XviD AC3' }).verdict, 'no', 'old video codec: converting audio does not help');
+    assert.equal(sourceCompat({ title: 'Movie 2024 1080p x264 DDP5.1.avi' }).verdict, 'no', 'AVI file');
+  } finally { location.protocol = 'chrome-extension:'; }
 });

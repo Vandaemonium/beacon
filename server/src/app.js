@@ -7,6 +7,7 @@
  *   GET  /api/config            → settings the UI needs: traktClientId, which communal providers
  *                               exist, and a stream key for VLC-openable Live TV links
  *   /api/pm, /api/tb, /api/iptv, /api/stream   the communal accounts (see providers.js)
+ *   GET  /api/stream/<token>/info, /aac?t=   Sol converts Dolby/DTS audio to AAC (see convert.js)
  *   GET  /api/netcheck          the address Sol's provider traffic leaves from
  *   GET  /api/compat            viewers' reports: which releases really had sound in the browser
  *   POST /api/compat/report     { title, sound } from the player after a few seconds of playback
@@ -30,6 +31,7 @@ import { failureLimiter } from './ratelimit.js';
 import { vault as makeVault } from './vault.js';
 import { providers as makeProviders } from './providers.js';
 import { UpstreamError } from './upstream.js';
+import { converter as makeConverter } from './convert.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -63,6 +65,7 @@ export function createApp({ config, jellyfin, store, log = console }) {
   const userCache = new Map();
   const vault = makeVault(config.sessionSecret);
   const prov = makeProviders({ config, vault, log });
+  const conv = makeConverter({ maxTotal: config.convertMax || 10, maxPerUser: config.convertPerUser || 2, log });
 
   async function jellyfinUser(uid) {
     const hit = userCache.get(uid);
@@ -292,10 +295,22 @@ export function createApp({ config, jellyfin, store, log = console }) {
       return DONE;
     }
     if (pathname.startsWith('/api/stream/') && (req.method === 'GET' || req.method === 'HEAD')) {
-      const data = vault.open(pathname.slice(12));
-      if (!data || !data.u) throw new HttpError(401, 'This link has expired. Start the video again in Beacon.');
-      await prov.stream({ req, res, data, user: await tokenUser(data) });
-      return DONE;
+      const [token, sub, extra] = pathname.slice(12).split('/');
+      const data = vault.open(token);
+      if (!data || !data.u || extra !== undefined) throw new HttpError(401, 'This link has expired. Start the video again in Beacon.');
+      const user = await tokenUser(data);
+      if (!sub) { await prov.stream({ req, res, data, user }); return DONE; }
+      if (data.k !== 'file' || data.ch) throw new HttpError(404, 'Only films and episodes can have their audio converted');
+      // ffmpeg reads the original through this same server, so Range requests and the VPN still apply.
+      const localUrl = `http://127.0.0.1:${req.socket.localPort}/api/stream/${token}`;
+      try {
+        if (sub === 'info') return await conv.probe(localUrl, data.u);
+        if (sub === 'aac') { await conv.stream({ req, res, localUrl, key: data.u, user, start: searchParams.get('t') }); return DONE; }
+      } catch (e) {
+        if (e instanceof HttpError || res.headersSent) throw e;
+        throw new HttpError(e.status || 502, e.message);
+      }
+      throw new HttpError(404, 'No such stream option');
     }
     return undefined;
   }

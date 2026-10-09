@@ -5,12 +5,56 @@ import { h, btn, icon, toast, copyText, popover, menuItem } from './dom.js';
 import { actions } from './actions.js';
 import { history } from '../lib/history.js';
 import { trakt } from '../lib/trakt.js';
-import { prefs, emit, reportCompat } from '../lib/store.js';
+import { prefs, emit, reportCompat, onEmpyrean } from '../lib/store.js';
 import { epCode, fmtTime, seasonsFor } from '../lib/meta.js';
 import { judge } from '../lib/compat.js';
 import { downloadVlcPlaylist } from '../lib/vlc-playlist.js';
 
 let ui = null, session = null, hideTimer = null;
+
+/* Time, including Sol's converted-audio stream (website): Sol restarts that stream at every seek, so the
+ * video element's clock starts at session.conv.offset. Everything reads and seeks time through these. */
+const cur = () => (session?.conv?.offset || 0) + (ui.video.currentTime || 0);
+const dur = () => session?.conv ? session.conv.duration : ui.video.duration;
+function seekTo(t) {
+  const c = session?.conv;
+  if (!c) { ui.video.currentTime = t; return; }
+  // Scrubbing sends many seeks: move the knob now, restart Sol's stream once it settles.
+  c.pending = t;
+  ui.played.style.width = (t / c.duration) * 100 + '%';
+  ui.knob.style.left = (t / c.duration) * 100 + '%';
+  clearTimeout(c.seekTimer);
+  c.seekTimer = setTimeout(() => startConverted(c.pending), 350);
+}
+
+/* Website: films whose audio browsers can't play (Dolby, DTS, TrueHD) get it converted to AAC on Sol. */
+const canConvert = s => onEmpyrean() && typeof s?.url === 'string' && s.url.startsWith('/api/stream/');
+export function audioNeedsSol(title) {
+  const j = judge(String(title || ''));
+  return j.verdict === 'no' && j.problems.length > 0 && j.problems.every(p => /audio|no sound/i.test(p));
+}
+async function useConverted(at) {
+  const s = session;
+  if (!canConvert(s)) return false;
+  let info = null;
+  try { const r = await fetch(s.url + '/info'); info = r.ok ? await r.json() : null; } catch {}
+  if (session !== s) return false;
+  if (!info?.duration) { toast('Sol couldn’t read this file to convert its audio — try VLC or another source', { error: true }); return false; }
+  const a = info.audio?.find(x => x.default) || info.audio?.[0];
+  if (!at && s.resumePct) at = (s.resumePct / 100) * info.duration;
+  s.conv = { offset: 0, duration: info.duration, codec: a?.codec || '', shown: false };
+  startConverted(at > 5 && at < info.duration - 30 ? at : 0);
+  ui.sourceLabel.textContent = s.label + ' · audio converted on Sol';
+  return true;
+}
+function startConverted(t) {
+  const c = session?.conv;
+  if (!c) return;
+  c.offset = Math.max(0, Math.min(t || 0, c.duration - 1));
+  session.restoring = true; session.resumeAt = 0; session.resumePct = 0;
+  ui.root.classList.remove('has-error'); ui.root.classList.add('buffering');
+  attach(`${session.url}/aac?t=${c.offset.toFixed(1)}`);
+}
 
 function build() {
   const video = h('video.player-video', { playsInline: true, preload: 'auto' });
@@ -60,7 +104,7 @@ function build() {
   let dragging = false;
   scrub.addEventListener('pointerdown', e => { dragging = true; scrub.setPointerCapture(e.pointerId); seekPct(pctAt(e)); });
   scrub.addEventListener('pointermove', e => {
-    const p = pctAt(e); hover.style.left = p * 100 + '%'; hover.textContent = fmtTime(p * (video.duration || 0));
+    const p = pctAt(e); hover.style.left = p * 100 + '%'; hover.textContent = fmtTime(p * (dur() || 0));
     if (dragging) seekPct(p);
   });
   scrub.addEventListener('pointerup', () => { dragging = false; });
@@ -91,8 +135,8 @@ function wake() {
 }
 function flashIcon(name) { ui.flash.replaceChildren(icon(name)); ui.flash.classList.remove('go'); void ui.flash.offsetWidth; ui.flash.classList.add('go'); }
 function togglePlay() { if (ui.video.paused) { ui.video.play().catch(() => {}); flashIcon('play'); } else { ui.video.pause(); flashIcon('pause'); } }
-function seekBy(s) { const v = ui.video; if (!Number.isFinite(v.duration)) return; v.currentTime = Math.max(0, Math.min(v.duration - 1, v.currentTime + s)); flashIcon(s < 0 ? 'rewind' : 'forward'); wake(); }
-function seekPct(p) { const v = ui.video; if (Number.isFinite(v.duration)) v.currentTime = p * v.duration; }
+function seekBy(s) { const d = dur(); if (!Number.isFinite(d)) return; seekTo(Math.max(0, Math.min(d - 1, (session?.conv?.pending ?? cur()) + s))); flashIcon(s < 0 ? 'rewind' : 'forward'); wake(); }
+function seekPct(p) { const d = dur(); if (Number.isFinite(d)) seekTo(p * d); }
 function onKeys(e) {
   if (!ui.root.classList.contains('open') || e.target.closest?.('input:not(.vol), textarea')) return;
   if (document.querySelector('.popover') && e.key !== 'Escape') return;
@@ -109,31 +153,33 @@ function onKeys(e) {
 }
 
 function onTime() {
-  const v = ui.video, d = v.duration;
+  const v = ui.video, d = dur(), t = cur();
   if (!Number.isFinite(d) || d <= 0) return;
-  const p = v.currentTime / d;
+  if (session?.conv && session.conv.pending !== undefined) return; // a seek is on its way: keep the knob where it was dropped
+  const p = Math.min(1, t / d);
   ui.played.style.width = p * 100 + '%';
   ui.knob.style.left = p * 100 + '%';
-  ui.tCur.textContent = `${fmtTime(v.currentTime)} / ${fmtTime(d)}`;
-  ui.tLeft.textContent = '-' + fmtTime(d - v.currentTime);
+  ui.tCur.textContent = `${fmtTime(t)} / ${fmtTime(d)}`;
+  ui.tLeft.textContent = '-' + fmtTime(Math.max(0, d - t));
   ui.scrub.setAttribute('aria-valuenow', String(Math.round(p * 100)));
   if (session && !session.restoring) {
     if (Date.now() - session.savedAt > 10000) save();
-    if (session.next && d - v.currentTime <= 40 && d > 300 && !session.upnextShown) showUpNext(false);
+    if (session.next && d - t <= 40 && d > 300 && !session.upnextShown) showUpNext(false);
     // After a few seconds, check whether any audio was actually decoded (Chrome counts it).
-    if (!session.audioChecked && v.currentTime > 6 && session.usingUrl !== session.alt && typeof v.webkitAudioDecodedByteCount === 'number') {
+    if (!session.audioChecked && !session.conv && v.currentTime > 6 && session.usingUrl !== session.alt && typeof v.webkitAudioDecodedByteCount === 'number') {
       session.audioChecked = true;
       const silent = v.webkitAudioDecodedByteCount === 0;
       reportCompat(session.title, !silent); // shared: tightens the "Plays in Chrome" labels for everyone
-      if (silent && session.alt) showChip('No sound? This file’s audio format may not be supported by Chrome.', 'Switch to browser-friendly stream', () => switchStream(session.alt, true));
+      if (silent && canConvert(session)) { toast('No sound in this browser — Sol is converting the audio, one moment'); useConverted(t); }
+      else if (silent && session.alt) showChip('No sound? This file’s audio format may not be supported by Chrome.', 'Switch to browser-friendly stream', () => switchStream(session.alt, true));
       else if (silent) showChip('No sound: Chrome can’t play this file’s audio. VLC can, or pick another source.', 'Download VLC playlist', () => saveVlcPlaylist(session));
     }
   }
 }
 function drawBuffered() {
-  const v = ui.video;
-  if (!v.buffered.length || !Number.isFinite(v.duration)) return;
-  ui.buffered.style.width = (v.buffered.end(v.buffered.length - 1) / v.duration) * 100 + '%';
+  const v = ui.video, d = dur();
+  if (!v.buffered.length || !Number.isFinite(d) || d <= 0) return;
+  ui.buffered.style.width = Math.min(100, (((session?.conv?.offset || 0) + v.buffered.end(v.buffered.length - 1)) / d) * 100) + '%';
 }
 /** Returns a short reason when a file won't play correctly in THIS browser (codec probe), else ''. */
 export function knownIncompatible(url, title) {
@@ -147,6 +193,19 @@ export function knownIncompatible(url, title) {
 function onMeta() {
   const v = ui.video;
   if (!session) return;
+  if (session.conv) {
+    // Sol's stream already starts at the chosen time.
+    const c = session.conv;
+    if (!c.shown) {
+      c.shown = true;
+      const what = { ac3: 'Dolby Digital', eac3: 'Dolby Digital Plus', dts: 'DTS', truehd: 'Dolby TrueHD' }[c.codec] || (c.codec ? c.codec.toUpperCase() : 'its');
+      showChip(`${c.offset > 5 ? `Resumed at ${fmtTime(c.offset)} · ` : ''}Sol is converting this file’s ${what} audio so it plays with sound here.`, c.offset > 5 ? 'Start over' : '', () => startConverted(0), 9000);
+    }
+    c.pending = undefined;
+    session.restoring = false;
+    v.play().catch(() => { ui.root.classList.add('awake'); });
+    return;
+  }
   let target = session.resumeAt || 0;
   if (!target && session.resumePct) target = (session.resumePct / 100) * v.duration;
   if (target > 5 && Number.isFinite(v.duration) && target < v.duration - 30) {
@@ -168,12 +227,11 @@ function showChip(text, actionLabel, fn, ms = 8000) {
   clearTimeout(ui.chip._t); ui.chip._t = setTimeout(() => ui.chip.classList.remove('show'), ms);
 }
 
-function progressPct() { const v = ui.video; return Number.isFinite(v.duration) && v.duration > 0 ? (v.currentTime / v.duration) * 100 : 0; }
+function progressPct() { const d = dur(); return Number.isFinite(d) && d > 0 ? Math.min(100, (cur() / d) * 100) : 0; }
 function save(final = false) {
   if (!session || session.restoring) return;
-  const v = ui.video;
-  const d = Number.isFinite(v.duration) ? v.duration : 0;
-  const pos = v.currentTime || 0;
+  const d = Number.isFinite(dur()) ? dur() : 0;
+  const pos = cur() || 0;
   if (!d && !pos) return;
   const completed = d > 60 && pos / d >= 0.9;
   session.savedAt = Date.now();
@@ -203,7 +261,7 @@ function stopScrobble(pct) {
 function onError(err) {
   if (!session) return;
   // Automatic fallback to Premiumize's browser-friendly (transcoded) stream.
-  if (session.alt && session.usingUrl !== session.alt && !session.triedAlt) {
+  if (!session.conv && session.alt && session.usingUrl !== session.alt && !session.triedAlt) {
     session.triedAlt = true;
     toast('This file’s format isn’t supported by Chrome — switching to the browser-friendly stream');
     switchStream(session.alt, false);
@@ -235,7 +293,8 @@ function attach(url) {
   } else v.src = url;
 }
 function switchStream(url, keepPos) {
-  const pos = ui.video.currentTime;
+  const pos = cur();
+  if (session.conv) { clearTimeout(session.conv.seekTimer); session.conv = null; }
   ui.root.classList.remove('has-error');
   session.restoring = true;
   session.resumeAt = (keepPos || pos > 5) ? pos : session.resumeAt;
@@ -260,6 +319,7 @@ function optionsMenu(anchor) {
       pop.append(menuItem('Original quality', { checked: s.usingUrl === s.url, onClick: () => { close_(); if (s.usingUrl !== s.url) switchStream(s.url, true); } }));
       pop.append(menuItem('Browser-friendly stream (Premiumize)', { checked: s.usingUrl === s.alt, onClick: () => { close_(); if (s.usingUrl !== s.alt) switchStream(s.alt, true); } }));
     }
+    if (canConvert(s)) pop.append(menuItem('Sol converts the audio (for Dolby/DTS files)', { checked: !!s.conv, onClick: () => { close_(); if (s.conv) switchStream(s.url, true); else useConverted(cur()); } }));
     pop.append(menuItem('Download VLC playlist (.m3u)', { icon: 'play', onClick: () => { close_(); saveVlcPlaylist(s); } }));
     pop.append(menuItem('Copy active link for VLC', { icon: 'copy', onClick: async () => { close_(); toast(await copyText(s.usingUrl) ? 'Link copied — VLC › Media › Open Network Stream' : 'Copy failed'); } }));
     pop.append(menuItem('Choose another source', { icon: 'search', onClick: () => { close_(); const { item, ep } = s; save(true); close(); actions.openSources(item, ep, { resumeAt: history.resumeAt(item, ep) }); } }));
@@ -321,7 +381,9 @@ export function play({ item, ep, url, alt, label, resumeAt = 0, resumePct = 0, s
   document.body.classList.add('player-open');
   // record the start locally right away (does not mark anything watched)
   history.update(item, ep, { url, source: session.label, sourceInfo });
-  attach(first);
+  // Website: a release whose only problem is audio this browser can't play starts on Sol's converted stream.
+  if (canConvert(session) && first === url && audioNeedsSol(title)) useConverted(resumeAt).then(ok => { if (!ok && session?.url === url) attach(first); });
+  else attach(first);
   ui.root.focus?.();
   wake();
   if (ep) findNext(item, ep).then(n => { if (session && session.item === item) { session.next = n; ui.nextBtn.classList.toggle('hidden', !n); } });
@@ -332,6 +394,7 @@ export function close(silent = false) {
   const s = session;
   s.closing = true;
   clearInterval(s.unTimer);
+  clearTimeout(s.conv?.seekTimer);
   if (!s.restoring) save(true);
   const pct = progressPct();
   if (!s.stopped && s.started) stopScrobble(pct);

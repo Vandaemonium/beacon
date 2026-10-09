@@ -8,6 +8,8 @@
  *                               exist, and a stream key for VLC-openable Live TV links
  *   /api/pm, /api/tb, /api/iptv, /api/stream   the communal accounts (see providers.js)
  *   GET  /api/netcheck          the address Sol's provider traffic leaves from
+ *   GET  /api/compat            viewers' reports: which releases really had sound in the browser
+ *   POST /api/compat/report     { title, sound } from the player after a few seconds of playback
  *   GET  /api/defaults          settings every browser starts with (shared add-ons, Express packages)
  *   GET  /api/express/fetch?url=   a search page for Barr's Express engine, fetched through the VPN;
  *                               only sites named in the shared Express packages
@@ -48,6 +50,8 @@ const MAX_BODY = 64 * 1024;
 const SECRET_KEY = /^[A-Za-z0-9:._-]{1,64}$/;
 
 const DONE = Symbol('streamed');
+// Same normalisation as compat.js in the UI: lower case, letters and digits only, single spaces.
+export const compatKey = t => String(t || '').toLowerCase().replace(/\.(mkv|mp4|m4v|avi|webm)$/, '').replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 200);
 const safeDecode = s => { try { return decodeURIComponent(s); } catch { return ''; } };
 
 class HttpError extends Error {
@@ -194,6 +198,22 @@ export function createApp({ config, jellyfin, store, log = console }) {
     'GET /api/netcheck': async req => {
       await requireUser(req);
       return prov.netcheck();
+    },
+
+    'GET /api/compat': async req => {
+      await requireUser(req);
+      return store.compatReports();
+    },
+
+    'POST /api/compat/report': async req => {
+      checkOrigin(req);
+      const me = await requireUser(req);
+      const { title, sound } = await readBody(req);
+      const key = compatKey(title);
+      if (!key || typeof sound !== 'boolean') throw new HttpError(400, 'Need { title, sound }');
+      const r = store.reportCompat(key, sound);
+      if (!sound) log.info?.(`no sound in browser: "${String(title).slice(0, 120)}" (reported by ${me.name})`);
+      return r;
     },
 
     'GET /api/defaults': async req => {

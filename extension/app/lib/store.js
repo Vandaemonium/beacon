@@ -122,6 +122,16 @@ export const shared = name => !!empyrean?.providers?.[name];
  * Applied when missing, and again whenever the admin bumps their version (which replaces local edits).
  * → true if anything changed (express.js read the old values at load, so the page must reload). */
 const DEFAULTS_KEY = 'beacon:empyrean:defaults:version';
+/* Website: viewers' reports of which releases really had sound (shared by everyone on Sol). */
+export async function loadCompatReports() {
+  if (!onEmpyrean()) return null;
+  try { return (await fetchJson('/api/compat')).body; } catch { return null; }
+}
+export function reportCompat(title, sound) {
+  if (!onEmpyrean() || !title) return;
+  fetch('/api/compat/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, sound }) }).catch(() => {});
+}
+
 export async function applyDefaults() {
   if (!onEmpyrean()) return false;
   let d;

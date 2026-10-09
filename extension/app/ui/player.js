@@ -5,7 +5,7 @@ import { h, btn, icon, toast, copyText, popover, menuItem } from './dom.js';
 import { actions } from './actions.js';
 import { history } from '../lib/history.js';
 import { trakt } from '../lib/trakt.js';
-import { prefs, emit } from '../lib/store.js';
+import { prefs, emit, reportCompat } from '../lib/store.js';
 import { epCode, fmtTime, seasonsFor } from '../lib/meta.js';
 import { judge } from '../lib/compat.js';
 import { downloadVlcPlaylist } from '../lib/vlc-playlist.js';
@@ -120,9 +120,13 @@ function onTime() {
   if (session && !session.restoring) {
     if (Date.now() - session.savedAt > 10000) save();
     if (session.next && d - v.currentTime <= 40 && d > 300 && !session.upnextShown) showUpNext(false);
-    if (!session.audioChecked && v.currentTime > 6 && session.alt && session.usingUrl !== session.alt) {
+    // After a few seconds, check whether any audio was actually decoded (Chrome counts it).
+    if (!session.audioChecked && v.currentTime > 6 && session.usingUrl !== session.alt && typeof v.webkitAudioDecodedByteCount === 'number') {
       session.audioChecked = true;
-      if (v.webkitAudioDecodedByteCount === 0) showChip('No sound? This file’s audio format may not be supported by Chrome.', 'Switch to browser-friendly stream', () => switchStream(session.alt, true));
+      const silent = v.webkitAudioDecodedByteCount === 0;
+      reportCompat(session.title, !silent); // shared: tightens the "Plays in Chrome" labels for everyone
+      if (silent && session.alt) showChip('No sound? This file’s audio format may not be supported by Chrome.', 'Switch to browser-friendly stream', () => switchStream(session.alt, true));
+      else if (silent) showChip('No sound: Chrome can’t play this file’s audio. VLC can, or pick another source.', 'Download VLC playlist', () => saveVlcPlaylist(session));
     }
   }
 }
@@ -297,7 +301,7 @@ export function play({ item, ep, url, alt, label, resumeAt = 0, resumePct = 0, s
   if (!ui) build();
   if (session) close(true);
   const v = ui.video;
-  session = { item, ep, url, alt: alt && alt !== url ? alt : '', label: label || '', resumeAt, resumePct, sourceInfo, savedAt: Date.now(), restoring: true, started: false, next: null };
+  session = { item, ep, url, alt: alt && alt !== url ? alt : '', label: label || '', title: title || '', resumeAt, resumePct, sourceInfo, savedAt: Date.now(), restoring: true, started: false, next: null };
   // Prefer the transcoded stream immediately when the user chose that in Settings.
   const pref = prefs().preferTranscoded;
   // For unsupported-by-Chrome containers, use the browser-friendly cloud rendition first.

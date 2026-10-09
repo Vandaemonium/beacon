@@ -213,3 +213,14 @@ test('the UI gets the server-side Trakt client ID once signed in', async () => {
   assert.equal(c.traktClientId, 'trakt-test-id');
   assert.deepEqual(c.providers, { premiumize: false, torbox: false, iptv: false });
 });
+
+test('players report whether a release had sound; everyone sees the result', async () => {
+  const admin = await login('cory', 'admin-pw');
+  const title = 'Some.Movie.2024.1080p.WEB-DL.H264.AAC-GRP.mkv';
+  assert.equal((await req('/api/compat/report', { body: { title, sound: false } })).status, 401);
+  assert.equal((await req('/api/compat/report', { body: { title, sound: 'no' }, cookie: admin.cookie })).status, 400);
+  const r = await req('/api/compat/report', { body: { title, sound: false }, cookie: admin.cookie });
+  assert.deepEqual([r.data.sound, r.data.silent], [0, 1]);
+  const all = (await req('/api/compat', { cookie: admin.cookie })).data;
+  assert.equal(all['some movie 2024 1080p web dl h264 aac grp'].silent, 1);
+});

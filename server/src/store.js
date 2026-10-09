@@ -3,6 +3,8 @@
  *   Jellyfin admins are always allowed and never need an entry.
  * - users/<jellyfin user id>.json: { secrets: { "<key>": value } }
  *   What the extension kept in chrome.storage.local (Trakt sign-in, Trakt settings), per user.
+ * - compat-reports.json: { "<normalised release name>": { sound, silent, at } }
+ *   What viewers' players found: did this release actually have sound in the browser?
  * - shared-defaults.json: { version, local: { "<localStorage key>": "<value>" } }
  *   Settings every browser starts with (Barr's add-ons and Express packages). Edited by hand on Sol;
  *   bump "version" to push a change to everyone.
@@ -37,6 +39,8 @@ export function openStore(dataDir) {
   };
   const userData = uid => readJson(userPath(uid), { secrets: {} });
   const defaultsPath = join(dataDir, 'shared-defaults.json');
+  const reportsPath = join(dataDir, 'compat-reports.json');
+  let reports = readJson(reportsPath, {});
   let defaults = { at: -1, value: null };
 
   return {
@@ -46,6 +50,17 @@ export function openStore(dataDir) {
       try { at = statSync(defaultsPath).mtimeMs; } catch { return null; }
       if (at !== defaults.at) defaults = { at, value: readJson(defaultsPath, null) };
       return defaults.value;
+    },
+    compatReports() { return reports; },
+    // One viewer's result for one release; keeps the newest 5000 releases.
+    reportCompat(key, sound) {
+      const r = reports[key] || { sound: 0, silent: 0 };
+      const next = { ...reports, [key]: { sound: r.sound + (sound ? 1 : 0), silent: r.silent + (sound ? 0 : 1), at: new Date().toISOString() } };
+      const keys = Object.keys(next);
+      if (keys.length > 5000) keys.sort((a, b) => next[a].at.localeCompare(next[b].at)).slice(0, keys.length - 5000).forEach(k => delete next[k]);
+      reports = next;
+      writeJson(reportsPath, reports);
+      return reports[key];
     },
     isAllowed(uid) { return Object.hasOwn(allow, uid); },
     allowlist() { return { ...allow }; },

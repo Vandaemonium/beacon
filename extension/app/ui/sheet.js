@@ -103,7 +103,7 @@ export function openSources(item, ep, opts = {}) {
     if (src.kind === 'direct') flags.append(h('span.flag.direct', 'Direct stream'));
     if (src.isPack) flags.append(h('span.flag.pack', 'Full-season pack'));
     const c = sourceCompat(src);
-    if (c.verdict === 'ok') flags.append(h('span.flag.plays', { title: c.viaFriendly ? 'Premiumize already has a version Chrome can play' : `File name lists ${c.known.join(' and ')}, which this browser supports` }, icon('check'), c.viaFriendly ? 'Plays in Chrome (browser-friendly)' : 'Plays in Chrome'));
+    if (c.verdict === 'ok') flags.append(h('span.flag.plays', { title: c.viaFriendly ? 'Premiumize already has a version Chrome can play' : c.reported ? 'A Beacon viewer played this release with sound' : `File name lists ${c.known.join(' and ')}, which this browser supports` }, icon('check'), c.viaFriendly ? 'Plays in Chrome (browser-friendly)' : c.reported ? 'Plays in Chrome (confirmed)' : 'Plays in Chrome'));
     else if (c.verdict === 'unknown') flags.append(h('span.flag.unknown', { title: `The file name doesn’t list the ${c.missing.join(' or ')}, so Beacon Hub can’t promise it will play.` }, `Format unknown${c.known.length ? ' · ' + c.known.join(', ') : ''}`));
     else if (c.verdict === 'maybe') flags.append(h('span.flag.risk', c.viaFriendly ? `May need browser-friendly stream · ${c.problems.join(', ')}` : c.risks.join(', ')));
     else flags.append(h('span.flag.bad', icon('alert'), `Won’t play here: ${c.problems.join(', ')}`));

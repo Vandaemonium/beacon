@@ -6,7 +6,9 @@
  *   GET  /api/me                → { id, name, admin }
  *   GET  /api/admin/users       Jellyfin users + whether each may use Beacon (admins only)
  *   POST /api/admin/allow       { id, allowed } (admins only)
- *   everything else             static files from WEB_DIR
+ *   GET|PUT|DELETE /api/secrets/<key>   the signed-in user's own saved values (Trakt sign-in etc.)
+ *   everything else             static files: WEB_DIR (sign-in page, public), then APP_DIR
+ *                               (Barr's Beacon Hub UI, signed-in users only)
  * Who may use Beacon: enabled Jellyfin admins, plus users on the allowlist.
  */
 'use strict';
@@ -23,15 +25,19 @@ const MIME = {
   '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8'
 };
 
+// connect-src: the UI calls Trakt, Cinemeta and add-ons straight from the browser (they all allow it).
 const SECURITY_HEADERS = {
-  'Content-Security-Policy': "default-src 'self'; img-src 'self' https: data:; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https:; worker-src 'self' blob:; style-src 'self'; font-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'same-origin',
   'X-Frame-Options': 'DENY'
 };
 
 const USER_TTL_MS = 60e3;
-const MAX_BODY = 16 * 1024;
+const MAX_BODY = 64 * 1024;
+const SECRET_KEY = /^[A-Za-z0-9:._-]{1,64}$/;
+
+const safeDecode = s => { try { return decodeURIComponent(s); } catch { return ''; } };
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -103,6 +109,22 @@ export function createApp({ config, jellyfin, store, log = console }) {
     return user;
   }
 
+  // /api/secrets/<key>: what the extension kept in chrome.storage.local, now per user on Sol.
+  async function secretsRoute(req, key) {
+    if (!SECRET_KEY.test(key)) throw new HttpError(400, 'Bad key');
+    const me = await requireUser(req);
+    if (req.method === 'GET') return { value: store.secret(me.id, key) };
+    checkOrigin(req);
+    if (req.method === 'PUT') {
+      const { value } = await readBody(req);
+      if (value === undefined) throw new HttpError(400, 'Need { value }');
+      store.setSecret(me.id, key, value);
+      return { ok: true };
+    }
+    if (req.method === 'DELETE') { store.delSecret(me.id, key); return { ok: true }; }
+    throw new HttpError(405, 'Method not allowed');
+  }
+
   const routes = {
     'GET /api/health': async () => ({ ok: true }),
 
@@ -166,17 +188,32 @@ export function createApp({ config, jellyfin, store, log = console }) {
     }
   };
 
+  // → absolute path of an existing file under root, or null
+  async function findFile(dir, rel) {
+    if (!dir) return null;
+    const root = normalize(dir.endsWith(sep) ? dir : dir + sep);
+    const file = normalize(join(root, rel));
+    if (!file.startsWith(root)) return null;
+    try { return (await stat(file)).isFile() ? file : null; } catch { return null; }
+  }
+
   async function serveStatic(req, res, pathname) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Method not allowed' });
     let rel;
     try { rel = decodeURIComponent(pathname); } catch { return send(res, 400, { error: 'Bad path' }); }
     if (rel.endsWith('/')) rel += 'index.html';
-    const root = normalize(config.webDir.endsWith(sep) ? config.webDir : config.webDir + sep);
-    const file = normalize(join(root, rel));
-    if (!file.startsWith(root) || rel.split('/').some(p => p.startsWith('.'))) return send(res, 404, { error: 'Not found' });
+    if (rel.split('/').some(p => p.startsWith('.'))) return send(res, 404, { error: 'Not found' });
+    let file = await findFile(config.webDir, rel);
+    if (!file) {
+      file = await findFile(config.appDir, rel);
+      if (file && !(await currentUser(req))) {
+        // The app itself is for signed-in users only: pages go to the sign-in page, the rest gets 401.
+        if (extname(file) === '.html') { res.writeHead(302, { ...SECURITY_HEADERS, Location: '/' }); return res.end(); }
+        return send(res, 401, { error: 'Not signed in' });
+      }
+    }
+    if (!file) return send(res, 404, { error: 'Not found' });
     try {
-      const st = await stat(file);
-      if (!st.isFile()) return send(res, 404, { error: 'Not found' });
       const body = await readFile(file);
       res.writeHead(200, {
         ...SECURITY_HEADERS,
@@ -194,6 +231,7 @@ export function createApp({ config, jellyfin, store, log = console }) {
     const { pathname } = new URL(req.url, 'http://beacon');
     const route = routes[`${req.method} ${pathname}`];
     try {
+      if (pathname.startsWith('/api/secrets/')) return send(res, 200, await secretsRoute(req, safeDecode(pathname.slice(13))));
       if (route) {
         const out = await route(req, res);
         return send(res, 200, out);

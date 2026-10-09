@@ -50,6 +50,7 @@ before(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'beacon-test-'));
   const config = {
     webDir: new URL('../../web/', import.meta.url).pathname,
+    appDir: new URL('../../extension/', import.meta.url).pathname,
     sessionSecret: 'x'.repeat(40), sessionDays: 30, cookieSecure: false, trustProxy: true, origins: []
   };
   const jellyfin = jellyfinClient({ url: `http://127.0.0.1:${fakeJf.address().port}`, apiKey: API_KEY });
@@ -67,9 +68,9 @@ after(() => {
 let ipCounter = 0;
 function freshIp() { return `10.0.0.${++ipCounter}`; }
 
-async function req(path, { body, cookie, headers = {}, ip } = {}) {
+async function req(path, { body, cookie, headers = {}, ip, method } = {}) {
   const r = await fetch(base + path, {
-    method: body === undefined ? 'GET' : 'POST',
+    method: method || (body === undefined ? 'GET' : 'POST'),
     headers: {
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       ...(cookie ? { Cookie: cookie } : {}),
@@ -165,8 +166,42 @@ test('static files are served with security headers, and nothing outside web/', 
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-security-policy'), /default-src 'self'/);
   assert.equal(page.headers.get('x-frame-options'), 'DENY');
-  assert.equal((await req('/app.js')).status, 200);
+  assert.equal((await req('/account.js')).status, 200);
   assert.equal((await req('/%2e%2e/server/package.json')).status, 404);
   assert.equal((await req('/..%2fserver%2fpackage.json')).status, 404);
   assert.equal((await req('/api/nope')).status, 404);
+});
+
+test("Barr's UI is served only to signed-in users", async () => {
+  const anon = await req('/beacon.html');
+  assert.equal(anon.status, 302);
+  assert.equal(anon.headers.get('location'), '/');
+  assert.equal((await req('/app/ui/main.js')).status, 401);
+  assert.equal((await req('/manifest.json')).status, 401);
+  const admin = await login('cory', 'admin-pw');
+  const page = await req('/beacon.html', { cookie: admin.cookie });
+  assert.equal(page.status, 200);
+  assert.match(page.data, /app\/ui\/main\.js/);
+  assert.match(page.headers.get('content-security-policy'), /connect-src 'self' https:/);
+  assert.equal((await req('/app/ui/main.js', { cookie: admin.cookie })).status, 200);
+  assert.equal((await req('/', { cookie: admin.cookie })).status, 200, 'the sign-in page is always public');
+});
+
+test('each user has their own saved values, and only while signed in', async () => {
+  const admin = await login('cory', 'admin-pw');
+  await req('/api/admin/allow', { body: { id: 'u-friend', allowed: true }, cookie: admin.cookie });
+  const friend = await login('coworker', 'friend-pw');
+  const key = '/api/secrets/' + encodeURIComponent('trakt:tokens');
+
+  assert.deepEqual((await req(key, { cookie: admin.cookie })).data, { value: null });
+  assert.equal((await req(key, { method: 'PUT', body: { value: { access_token: 'a1' } }, cookie: admin.cookie })).status, 200);
+  assert.deepEqual((await req(key, { cookie: admin.cookie })).data, { value: { access_token: 'a1' } });
+  assert.deepEqual((await req(key, { cookie: friend.cookie })).data, { value: null }, "one user can't read another's");
+
+  assert.equal((await req(key, { method: 'DELETE', cookie: admin.cookie })).status, 200);
+  assert.deepEqual((await req(key, { cookie: admin.cookie })).data, { value: null });
+
+  assert.equal((await req(key)).status, 401);
+  assert.equal((await req('/api/secrets/' + encodeURIComponent('../../allowlist'), { cookie: admin.cookie })).status, 400);
+  assert.equal((await req(key, { method: 'PUT', body: { value: 1 }, cookie: admin.cookie, headers: { Origin: 'https://evil.example' } })).status, 403);
 });

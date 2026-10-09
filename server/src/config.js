@@ -17,6 +17,7 @@ export function loadConfig(env = process.env) {
     host: env.HOST || '0.0.0.0',
     dataDir: env.DATA_DIR || '/data',
     webDir: env.WEB_DIR || new URL('../../web/', import.meta.url).pathname,
+    appDir: env.APP_DIR || new URL('../../extension/', import.meta.url).pathname,
     jellyfinUrl: (env.JELLYFIN_URL || 'http://host.docker.internal:8096').replace(/\/+$/, ''),
     jellyfinApiKey: need(env, 'JELLYFIN_API_KEY'),
     sessionSecret: secret,

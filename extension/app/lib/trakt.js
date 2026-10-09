@@ -8,7 +8,11 @@ import { cache, secrets, fetchJson, emit } from './store.js';
 import { fromTrakt, unwrapTrakt, keyOf } from './meta.js';
 
 export const API = 'https://api.trakt.tv';
-const REDIRECT = () => chrome.identity.getRedirectURL();
+// The extension returns to its chromiumapp.org address; the website returns to its own beacon.html.
+// Both must be listed under the Trakt app's Redirect URIs.
+const hasIdentity = () => typeof chrome !== 'undefined' && !!chrome?.identity?.launchWebAuthFlow;
+const REDIRECT = () => hasIdentity() ? chrome.identity.getRedirectURL() : location.origin + '/beacon.html';
+const PKCE_KEY = 'beacon:trakt:pkce';
 const CLIENT_ID = 'oMs5Elo0Jyxv0-WhaSpYULdKwsjHDopq1DuINOs96qA';
 const base64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 const DATA_KEY = 'trakt:data:v1';
@@ -105,9 +109,10 @@ class TraktClient {
   }
   async get(path, auth = false) { return (await this.request(path, { auth })).data; }
 
-  /* ---------- Chrome Identity OAuth 2.0 / PKCE ---------- */
+  redirectUrl() { return REDIRECT(); }
+
+  /* ---------- OAuth 2.0 / PKCE: Chrome Identity in the extension, a page redirect on the web ---------- */
   async connectPKCE() {
-    if (!chrome?.identity?.launchWebAuthFlow) throw new Error('Chrome identity permission is required');
     if (!this.hasClient()) await this.saveConfig(CLIENT_ID);
     const verifier = base64url(crypto.getRandomValues(new Uint8Array(48)));
     const challenge = base64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
@@ -116,6 +121,12 @@ class TraktClient {
     const auth = new URL('https://auth.trakt.tv/oauth/authorize');
     for (const [k,v] of Object.entries({ response_type:'code', client_id:this.config.clientId,
       redirect_uri:redirect, state, code_challenge:challenge, code_challenge_method:'S256' })) auth.searchParams.set(k,v);
+    if (!hasIdentity()) {
+      // Website: leave for Trakt; completeRedirect() finishes when Trakt sends the browser back.
+      sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state, back: location.hash }));
+      location.assign(auth.toString());
+      return new Promise(() => {});
+    }
     const responseUrl = await chrome.identity.launchWebAuthFlow({ url:auth.toString(), interactive:true });
     if (!responseUrl) throw new Error('Trakt authorization was cancelled');
     const callback = new URL(responseUrl);
@@ -124,6 +135,20 @@ class TraktClient {
     if (callback.searchParams.get('error')) throw new Error(callback.searchParams.get('error_description') || callback.searchParams.get('error'));
     const code = callback.searchParams.get('code');
     if (!code) throw new Error('Trakt did not return an authorization code');
+    return this.exchangeCode(code, verifier, redirect);
+  }
+  /** Website only: finish a sign-in when Trakt sends the browser back with ?code=…&state=…  → true if it did. */
+  async completeRedirect() {
+    const q = new URLSearchParams(location.search);
+    if (hasIdentity() || !q.has('state') || !(q.has('code') || q.has('error'))) return false;
+    const saved = JSON.parse(sessionStorage.getItem(PKCE_KEY) || 'null');
+    sessionStorage.removeItem(PKCE_KEY);
+    window.history.replaceState(null, '', location.pathname + (saved?.back || ''));
+    if (!saved || q.get('state') !== saved.state) throw new Error('Trakt authorization state mismatch');
+    if (q.get('error')) throw new Error(q.get('error_description') || q.get('error'));
+    return this.exchangeCode(q.get('code'), saved.verifier, REDIRECT());
+  }
+  async exchangeCode(code, verifier, redirect) {
     const { body } = await fetchJson(API + '/oauth/token', { method:'POST',
       headers:{ 'Content-Type':'application/json' },
       body:JSON.stringify({ code, client_id:this.config.clientId, redirect_uri:redirect,

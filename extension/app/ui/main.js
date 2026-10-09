@@ -172,6 +172,11 @@ on('trakt:sync-errors', errs => {
 /* ---------- boot ---------- */
 (async function boot() {
   await Promise.all([trakt.load(), pm.load()]);
+  // Website: back from Trakt's sign-in page?
+  const traktReturned = await trakt.completeRedirect().catch(e => { toast('Trakt: ' + e.message, { error: true }); return false; });
+  if (traktReturned) toast(`Trakt connected${trakt.user?.username ? ' as ' + trakt.user.username : ''}`);
+  // Website: a way back to the Beacon account page (who's signed in, sign out, admin).
+  if (/^https?:$/.test(location.protocol)) $('.foot')?.append(h('a.foot-link', { href: '/' }, 'Beacon account'));
   iptv.load();
   drawAccount();
   render();
@@ -179,7 +184,7 @@ on('trakt:sync-errors', errs => {
   document.body.classList.add('ready');
   // background work
   if (trakt.connected()) {
-    if (Date.now() - (trakt.data.lastSync || 0) > 2 * 60e3) trakt.sync().catch(e => toast('Trakt sync failed: ' + e.message, { error: true }));
+    if (traktReturned || Date.now() - (trakt.data.lastSync || 0) > 2 * 60e3) trakt.sync().catch(e => toast('Trakt sync failed: ' + e.message, { error: true }));
     setInterval(() => { if (!document.hidden) trakt.sync().catch(() => {}); }, 15 * 60e3);
   }
   if (iptv.signedIn() && route !== 'live') iptv.refresh().catch(() => {});

@@ -56,7 +56,7 @@ function traktCard(redraw) {
   }
   const clientId = trakt.config?.clientId || 'oMs5Elo0Jyxv0-WhaSpYULdKwsjHDopq1DuINOs96qA';
   const flow = h('div.device-flow');
-  const redirect = chrome.identity.getRedirectURL();
+  const redirect = trakt.redirectUrl();
   const connect = async () => {
     clear(flow).append(h('div.loading-inline', h('div.ring'), 'Opening Trakt authorization…'));
     try {
@@ -69,7 +69,7 @@ function traktCard(redraw) {
   };
   return card('Trakt', 'Sign in securely with the Trakt app you already registered. No password or Client Secret is needed.',
     status(false, 'Not connected'),
-    h('p.muted.small', 'Registered Chrome redirect: ', h('code.copyable', { title:'Copy redirect', on:{click:async()=>toast(await copyText(redirect)?'Copied':'Copy failed')} }, redirect)),
+    h('p.muted.small', 'Registered Trakt redirect: ', h('code.copyable', { title:'Copy redirect', on:{click:async()=>toast(await copyText(redirect)?'Copied':'Copy failed')} }, redirect)),
     h('p.muted.small', 'Client ID already configured for Beacon. Trakt opens a secure sign-in window to authorize access.'),
     h('div.btn-row', btn('Connect Trakt', { icon:'link', kind:'primary', onClick:connect })), flow);
 

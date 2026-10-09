@@ -2,6 +2,7 @@
  * - prefs(): small UI preferences in localStorage (shared with older Beacon pages).
  * - cache: IndexedDB key/value store for large synced data (Trakt lists, metadata).
  * - secrets: chrome.storage.local (extension-private) for Trakt OAuth tokens.
+ *   On Empyrean (Beacon as a website) they are kept on Sol per signed-in user, via /api/secrets.
  */
 'use strict';
 
@@ -55,9 +56,22 @@ export const cache = {
 };
 
 const hasChromeStorage = () => typeof chrome !== 'undefined' && chrome?.storage?.local;
+const onWeb = () => !hasChromeStorage() && /^https?:$/.test(location.protocol);
+
+async function serverSecret(method, key, value) {
+  const r = await fetch('/api/secrets/' + encodeURIComponent(key), {
+    method,
+    headers: method === 'PUT' ? { 'Content-Type': 'application/json' } : {},
+    body: method === 'PUT' ? JSON.stringify({ value }) : undefined,
+  });
+  if (r.status === 401) { location.href = '/'; throw new Error('Signed out of Beacon'); }
+  if (!r.ok) throw new Error(`Saving settings failed: HTTP ${r.status}`);
+  return method === 'GET' ? (await r.json()).value ?? null : undefined;
+}
 
 export const secrets = {
   async get(key) {
+    if (onWeb()) return serverSecret('GET', key);
     if (hasChromeStorage()) {
       const o = await chrome.storage.local.get(key);
       return o[key] ?? null;
@@ -65,10 +79,12 @@ export const secrets = {
     return cache.get('secret:' + key);
   },
   async set(key, value) {
+    if (onWeb()) return serverSecret('PUT', key, value);
     if (hasChromeStorage()) return chrome.storage.local.set({ [key]: value });
     return cache.set('secret:' + key, value);
   },
   async del(key) {
+    if (onWeb()) return serverSecret('DELETE', key);
     if (hasChromeStorage()) return chrome.storage.local.remove(key);
     return cache.del('secret:' + key);
   },

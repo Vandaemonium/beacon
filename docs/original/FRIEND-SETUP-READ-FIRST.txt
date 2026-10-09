@@ -1,0 +1,39 @@
+BEACON HUB 1.2.1 — TRUSTED FRIEND TESTING
+=========================================
+This package contains the complete Beacon Hub Chrome extension, including its bundled vendor code and VLC playlist feature. It contains no copies of the owner's browser credentials or sessions.
+
+INSTALL
+1. Extract Beacon-Hub-1.2.1-VLC.zip into a permanent folder.
+2. Open chrome://extensions in Chrome, enable Developer mode, click Load unpacked.
+3. Select the extracted Beacon-Hub-1.2 folder that contains manifest.json.
+4. Pin/open Beacon Hub. Keep the extracted folder in place.
+5. Use authorized accounts and streams. Test Chrome playback and Download VLC playlist (.m3u); launch downloaded playlist with VLC where installed.
+
+COPY OWNER'S SETTINGS / PROVIDER CONFIGURATION
+OWNER: In the current working installation open Beacon Hub > Media Hub > Accounts > Backup and restore settings.
+For provider URLs, packages, preferences, and relevant Beacon-local settings WITHOUT credentials:
+- Keep 'Include account keys and saved IPTV login' UNCHECKED.
+- Click 'Export backup'. It downloads a Beacon-settings-YYYY-MM-DD.json file.
+- Transfer this backup to friend. IMPORTANT: Even a non-secret backup can hold history, account-related URLs, or vendor URL tokens; review contents for personal/private data before sharing.
+FRIEND: In the new installation, open the same Backup and restore settings section; select the JSON file, choose Import backup, confirm replacement of matching settings, allow reload.
+
+OPTIONAL CREDENTIAL HANDOFF — ONLY IF AUTHORIZED BY SERVICES
+Owner can instead check 'Include account keys and saved IPTV login' and supply a strong, UNIQUE passphrase (12+ chars; prefer 16+ random). Export makes an AES-256-GCM encrypted backup using PBKDF2-SHA256 (250,000 iterations). Share the encrypted JSON by one channel and the passphrase through a DIFFERENT trusted channel. Recipient imports with the passphrase.
+This encrypted backup contains saved IPTV account and Premiumize/TorBox keys when stored in Beacon local/session storage. It may contain other personal Beacon local settings and history. Treat it as a copy of your passwords and private account data. Rotate/revoke shared API keys after testing if possible. A shared account may violate service terms or permit changes to your account. Prefer separate provider accounts or temporary test credentials.
+
+IMPORTANT LIMITATIONS
+- Trakt OAuth access/refresh tokens are in chrome.storage.local, NOT transferred by the built-in Beacon settings backup. Recipient must sign into their own authorized Trakt account using Beacon settings. Do NOT copy Chrome profile/session databases or OAuth refresh tokens manually.
+- IndexedDB metadata/cache may not be carried by the backup; app refetches it.
+- Some vendor/add-on URLs may include tokens or identifiers, even without saved account keys. Inspect before forwarding.
+- Credential backups do not include anything stored outside Beacon's localStorage/sessionStorage. Browser cookies, VPN sessions, OS certificates and other external logins are not transferred.
+- VLC .m3u files may themselves contain sensitive signed streaming URLs. Do not include your downloaded playlists in the package.
+- Installed extensions in Chrome use browser-profile-scoped data. Merely sending a source ZIP never carries Chrome login state.
+- The source extension requests broad host access. Review permissions on the test system.
+
+SECURITY / CLEANUP
+- Don't include your actual browser profile, browser cookies, VPN keys, screenshots with credentials, or credential-bearing playlist URLs.
+- After testing, recipient can clear Beacon data/remove the extension. Owner can revoke or rotate shared keys where supported.
+- On workplace-managed computers, follow employer software and network policies; the playlist technique avoids Native Messaging but does not conceal downloading, launching VLC, or streaming.
+
+SOURCE STATUS
+This handoff package is not a modified extension. It wraps the existing Beacon-Hub-1.2.1-VLC.zip and these instructions. No live login information was accessible to package here, and none was invented.

@@ -1,0 +1,10 @@
+Beacon 2.3 cloud processing test
+
+1. Extract into a NEW folder; Load unpacked from chrome://extensions.
+2. Existing TorBox/Premiumize connections are stored in session storage and may require reconnecting.
+3. Enable Cinemeta and Public Domain Movies if needed.
+4. Search Night of the Living Dead (1968), choose the result, find sources.
+5. On a torrent descriptor use Send to TorBox or Send to Premiumize. Confirm submission only for authorized media.
+6. Check processing status and try supported video links. MKV may not play in Chrome even with a valid link.
+
+Limitations: Only magnet/hash descriptors handled; torrent files, subtitles and transcoding unsupported. Processing may take time. Premiumize completed transfers can be browsed from Cloud Library via Refresh library. Browser/extension permissions and provider rules may cause errors. Does not use Syncler-specific vendors.

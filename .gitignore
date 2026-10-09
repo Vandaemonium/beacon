@@ -1,0 +1,10 @@
+# Never commit credentials or exports that may contain them
+.env
+*.env
+Beacon-settings-*.json
+*passcode*
+*Passcode*
+*.m3u
+*.m3u8
+node_modules/
+data/

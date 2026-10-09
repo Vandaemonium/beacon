@@ -1,0 +1,9 @@
+BEACON 3.6 CHROME EXTENSION TEST
+
+1. Back up your current working extension directory and Chrome profile settings.
+2. Replace files in the EXISTING extension directory; do not remove/reinstall the extension.
+3. In chrome://extensions click Reload on the same extension.
+4. Search The Last Ship, choose the exact 2014 show, inspect season/episode numbers.
+5. Confirm Live TV, TorBox and Premiumize still work.
+
+IMPORTANT: This ZIP is NOT a Windows portable EXE. It is an updated Chrome extension, because the supplied source ZIP contains only a Manifest V3 extension. Trakt requires a separately registered, compliant API application.

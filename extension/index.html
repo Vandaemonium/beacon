@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07101c">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: http: https:; media-src 'self' blob: http: https:; connect-src http: https:; style-src 'self'; script-src 'self'; worker-src blob:; manifest-src 'self'">
+  <title>Live TV · Beacon Hub</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/beacon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <section id="loginView" class="login-view">
+    <div class="login-card">
+      <img class="login-logo" src="assets/beacon.png" alt="Beacon">
+      <p class="eyebrow">YOUR TV. YOUR WAY.</p>
+      <h1>Beacon Hub</h1>
+      <p class="muted">Browser edition. IPTV requests are made directly by this browser so your browser VPN extension can handle them.</p>
+      <form id="loginForm">
+        <label>Server URL<input id="server" type="url" placeholder="http://provider.example:8080" required autocomplete="url"></label>
+        <label>Username<input id="username" required autocomplete="username"></label>
+        <label>Password<input id="password" type="password" required autocomplete="current-password"></label>
+        <label class="remember-row"><input id="remember" type="checkbox"><span>Remember this login on this browser</span></label>
+        <button class="primary" type="submit">Connect</button>
+        <p id="loginError" class="error"></p>
+      </form>
+      <button id="loginMediaHub" type="button" class="primary login-alt">Open Beacon Movies &amp; TV (no IPTV login needed)</button><div class="browser-note"><b>Browser-direct mode</b><span>Beacon Web has no IPTV proxy. Your browser connects straight to your provider.</span></div>
+      <p class="legal">Use only services and content you are authorized to access. On a shared computer, leave “Remember” off and sign out when finished.</p>
+    </div>
+  </section>
+
+  <section id="appView" class="app-view hidden">
+    <aside class="sidebar">
+      <div class="brand-stack"><img src="assets/beacon.png" alt=""><b>Beacon Hub</b><small>LIVE TV</small></div>
+      <button id="beaconHome" class="beacon-home-link" type="button">← Beacon Hub</button>
+      <nav id="nav">
+        <button data-view="home" class="active"><span>⌂</span>Live Home</button>
+        <button data-view="live"><span>▸</span>Live TV</button>
+        <button data-view="guide"><span>▦</span>Guide</button>
+        <button id="cloudMovies"><span>◆</span>Movies</button>
+        <button id="cloudSeries"><span>▣</span>TV Shows</button>
+        <button data-view="favorites"><span>★</span>Favorites</button>
+        <button data-view="history"><span>↺</span>History</button>
+      </nav>
+      <button id="openMediaHub" class="settings">◈ Providers &amp; Vendors</button><button id="settingsBtn" class="settings">⚙ Settings</button>
+    </aside>
+
+    <main>
+      <header>
+        <div><p id="viewEyebrow" class="eyebrow">WELCOME BACK</p><h2 id="viewTitle">Home</h2></div>
+        <div class="header-actions"><div class="search-wrap"><span>⌕</span><input id="search" placeholder="Search channels, movies, series"></div><span id="clock"></span></div>
+      </header>
+      <div id="connectionBanner" class="connection-banner hidden"></div>
+      <div id="loading" class="loading hidden"><div class="spinner"></div><p>Loading from your provider…</p></div>
+      <div id="content"></div>
+    </main>
+  </section>
+
+  <div id="playerModal" class="modal hidden">
+    <div class="player-shell">
+      <video id="video" controls playsinline></video>
+      <div class="player-meta">
+        <div><p id="playerKind" class="eyebrow"></p><h3 id="playerTitle"></h3><p id="playerDescription" class="muted"></p></div>
+        <div class="player-actions"><button id="nextEpisodeBtn" class="hidden">Next Episode →</button><button id="closePlayer">Close</button></div>
+      </div>
+      <p id="playerError" class="error"></p>
+      <p class="player-help muted">If a stream fails here but works in VLC, its codec or CORS policy may not be supported by Chrome.</p>
+    </div>
+  </div>
+
+  <div id="settingsModal" class="modal hidden">
+    <div class="dialog settings-dialog">
+      <h3>Beacon Hub · Classic Live TV <small class="muted">1.2</small></h3>
+      <p id="accountLabel" class="muted"></p>
+      <div class="settings-section">
+        <b>Browser routing</b>
+        <p class="muted">Provider API and media requests are sent directly from this page. No Beacon server proxies your IPTV traffic.</p>
+        <span id="routeSummary" class="status-pill">Direct browser → provider</span>
+      </div>
+      <label class="toggle-row"><span><b>Remember login</b><small>Store provider details on this browser</small></span><input id="rememberSetting" type="checkbox"></label>
+      <button id="refreshAll" class="primary">Refresh provider data</button>
+      <button id="clearRecent">Clear recently watched live TV</button>
+      <button id="clearWatchHistory">Clear movie &amp; series watch history</button>
+      <button id="signOut" class="danger">Sign out &amp; remove saved login</button>
+      <button id="closeSettings">Close</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="vendor/hls.min.js"></script>
+  <script src="app.js"></script><script src="hub-link.js"></script>
+</body>
+</html>

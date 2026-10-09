@@ -1,0 +1,7 @@
+Beacon 3.0.1 — TorBox error diagnostics
+
+Update in the same folder and reload at chrome://extensions.
+Try sending only a source you are authorized to access to TorBox.
+If HTTP 422 appears again, the new message should display TorBox error details.
+Do not share any API keys, tokens, or full signed media URLs.
+Premiumize playback and Beacon Live TV code are unchanged.

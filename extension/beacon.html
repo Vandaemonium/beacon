@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#06070c">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: http: https:; media-src 'self' blob: http: https:; connect-src http: https:; style-src 'self'; font-src 'self'; script-src 'self'; worker-src blob: 'self'; frame-src 'none'; object-src 'none'">
+  <title>Beacon Hub</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="app/ui/beacon.css">
+</head>
+<body>
+  <a class="skip" href="#view">Skip to content</a>
+  <header id="topnav" class="nav">
+    <button id="mobileMenu" class="nav-burger" type="button" aria-label="Menu"><span></span><span></span><span></span></button>
+    <a class="nav-brand" href="#/home" aria-label="Beacon Hub home">
+      <img src="icons/icon48.png" alt="">
+      <span>Beacon<em>Hub</em></span>
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="#/home" data-route="home">Home</a>
+      <a href="#/live" data-route="live">Live TV</a>
+      <a href="#/movies" data-route="movies">Movies</a>
+      <a href="#/shows" data-route="shows">TV Shows</a>
+      <a href="#/lists" data-route="lists">My Lists</a>
+      <a href="#/premiumize" data-route="premiumize">Premiumize</a>
+    </nav>
+    <div class="nav-right">
+      <div id="navSearch" class="nav-search">
+        <button id="navSearchBtn" class="nav-icon" type="button" aria-label="Search (/)">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </button>
+        <input id="navSearchInput" type="search" placeholder="Titles, people, genres" aria-label="Search titles" autocomplete="off">
+      </div>
+      <span id="syncDot" class="sync-dot" title="Syncing with Trakt"></span>
+      <a class="nav-icon" href="#/settings" data-route="settings" aria-label="Settings">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+      </a>
+      <div id="navAccount"></div>
+    </div>
+  </header>
+
+  <main id="view" tabindex="-1"></main>
+
+  <footer class="foot">
+    <img src="icons/icon32.png" alt="">
+    <span>Beacon Hub 1.2 · Use only services and content you’re authorized to access.</span>
+  </footer>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="vendor/hls.min.js"></script>
+  <script src="preferences.js"></script>
+  <script src="express.js"></script>
+  <script type="module" src="app/ui/main.js"></script>
+</body>
+</html>

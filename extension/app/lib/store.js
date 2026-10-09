@@ -118,6 +118,29 @@ export async function loadEmpyrean() {
 }
 export const shared = name => !!empyrean?.providers?.[name];
 
+/* Website: settings every browser starts with (Barr's add-ons and Express packages), from Sol.
+ * Applied when missing, and again whenever the admin bumps their version (which replaces local edits).
+ * → true if anything changed (express.js read the old values at load, so the page must reload). */
+const DEFAULTS_KEY = 'beacon:empyrean:defaults:version';
+export async function applyDefaults() {
+  if (!onEmpyrean()) return false;
+  let d;
+  try { d = (await fetchJson('/api/defaults')).body; } catch { return false; }
+  const version = Number(d?.version) || 0;
+  const applied = Number(localStorage.getItem(DEFAULTS_KEY)) || 0;
+  let changed = false;
+  try {
+    for (const [k, v] of Object.entries(d?.local || {})) {
+      if (!k.startsWith('beacon:') || typeof v !== 'string') continue;
+      if (localStorage.getItem(k) === null || version > applied) {
+        if (localStorage.getItem(k) !== v) { localStorage.setItem(k, v); changed = true; }
+      }
+    }
+    if (version !== applied) localStorage.setItem(DEFAULTS_KEY, String(version));
+  } catch (e) { console.warn('Could not apply shared defaults', e); return false; }
+  return changed;
+}
+
 /** Shared credentials written by the original Media Hub (media.js). */
 export const hubKey = name => localStorage.getItem('beacon:hub:' + name) || sessionStorage.getItem('beacon:hub:' + name) || '';
 export const setHubKey = (name, value) => {

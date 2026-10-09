@@ -2,6 +2,10 @@
 'use strict';
 window.BeaconExpress=(()=>{
  const KEY='beacon:express:packages:v1'; const $=id=>document.getElementById(id);
+ // Website (Empyrean): provider sites block cross-site browser requests, so Beacon's server fetches the
+ // page through its VPN (only for sites in the shared packages) and parsing stays here, unchanged.
+ const onWeb=(typeof chrome==='undefined'||!chrome?.storage?.local)&&/^https?:$/.test(location.protocol);
+ const pfetch=(url,opts={})=>onWeb?fetch('/api/express/fetch?url='+encodeURIComponent(url),{signal:opts.signal,headers:opts.headers}):fetch(url,opts);
  let pkgs=[];try{pkgs=JSON.parse(localStorage.getItem(KEY)||'[]');if(!Array.isArray(pkgs))pkgs=[]}catch{pkgs=[]}
  const save=()=>localStorage.setItem(KEY,JSON.stringify(pkgs));
  const text=(s,err=false)=>{const el=$('expressStatus');if(el){el.textContent=s;el.className=err?'error':'muted'}};
@@ -39,7 +43,7 @@ window.BeaconExpress=(()=>{
     try{
       const base=safe(p.rules.base_url);const started=performance.now();
       // Do not submit a movie title, cookies, credentials, or source requests.
-      const result=await fetch(base.href,{method:'GET',redirect:'follow',signal:AbortSignal.timeout(8000)});
+      const result=await pfetch(base.href,{method:'GET',redirect:'follow',signal:AbortSignal.timeout(8000)});
       return {name:p.name,detail:`HTTP ${result.status} · ${Math.round(performance.now()-started)}ms · ${base.hostname}`,ok:result.ok};
     }catch(e){let note=e?.name==='TimeoutError'?'Timed out':e?.message==='Failed to fetch'?'Network error / blocked request (possibly browser or provider restrictions)':String(e?.message||e);return {name:p.name,detail:note,ok:false}}
   }));
@@ -61,7 +65,7 @@ window.BeaconExpress=(()=>{
   const base=safe(r.base_url);const route=format(cfg.query,{...tokens,query:encodeURIComponent(tokens.query)});
   if(!route.startsWith('/'))throw Error('Only relative request paths are allowed');
   const url=safe(new URL(route,base).href);if(url.origin!==base.origin)throw Error('Provider endpoint crossed origins');
-  let response;try{response=await fetch(url.href,{signal:AbortSignal.timeout(12000),headers:{Accept:r.response_type==='text'?'text/html':'application/json'}})}catch(e){throw Error((e?.name==='TimeoutError'?'Request timed out':e?.message==='Failed to fetch'?'Network fetch blocked or destination unavailable':String(e?.message||e))+' ('+url.hostname+')')} if(!response.ok)throw Error('HTTP '+response.status+' from '+url.hostname);
+  let response;try{response=await pfetch(url.href,{signal:AbortSignal.timeout(12000),headers:{Accept:r.response_type==='text'?'text/html':'application/json'}})}catch(e){throw Error((e?.name==='TimeoutError'?'Request timed out':e?.message==='Failed to fetch'?'Network fetch blocked or destination unavailable':String(e?.message||e))+' ('+url.hostname+')')} if(!response.ok)throw Error('HTTP '+response.status+' from '+url.hostname);
   if(r.response_type==='text'){
     const html=await response.text(); if(html.length>2500000)throw Error('HTML response over limit');
     const doc=new DOMParser().parseFromString(html,'text/html');

@@ -165,6 +165,33 @@ export function providers({ config, vault, log = {} }) {
     return pipeMedia(req, res, data.u, opts);
   }
 
+  /* ---------- Express (Barr's OpenScrapers engine): search pages fetched through the VPN ---------- */
+  function expressHosts(defaults) {
+    const hosts = new Set();
+    let packs = [];
+    try { packs = JSON.parse(defaults?.local?.['beacon:express:packages:v1'] || '[]'); } catch {}
+    for (const pack of Array.isArray(packs) ? packs : []) {
+      for (const p of pack.providers || []) {
+        if (!p.supported) continue;
+        for (const u of [p.rules?.base_url, ...(p.rules?.fallback_urls || [])]) {
+          try { const x = new URL(u); if (x.protocol === 'https:') hosts.add(x.host); } catch {}
+        }
+      }
+    }
+    return hosts;
+  }
+
+  async function expressFetch({ user, url, accept, defaults }) {
+    let u;
+    try { u = new URL(url); } catch { throw new UpstreamError(400, 'Bad search URL'); }
+    if (u.protocol !== 'https:' || u.username || u.password) throw new UpstreamError(400, 'Public HTTPS URL required');
+    if (!expressHosts(defaults).has(u.host)) throw new UpstreamError(403, `${u.host} isn't one of the shared Express providers`);
+    const r = await fetchUpstream(u.href, { headers: { Accept: /json/.test(accept || '') ? 'application/json' : 'text/html', 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36' } }, { ...opts, timeout: 12000 });
+    const body = Buffer.from(await r.arrayBuffer());
+    if (body.length > 2.5e6) throw new UpstreamError(502, 'Search page too large');
+    return { status: r.status, body };
+  }
+
   // Which address Sol's provider traffic leaves from (should be ProtonVPN, not the home connection).
   async function netcheck() {
     const r = await fetchUpstream(config.bases?.ipinfo || 'https://ipinfo.io/json', {}, { ...opts, timeout: 10000 });
@@ -177,5 +204,5 @@ export function providers({ config, vault, log = {} }) {
     return { max: config.iptv?.maxStreams || 0, inUse: [...live.values()].filter(s => now - s.at <= SLOT_IDLE_MS).length };
   }
 
-  return { has, premiumize, torbox, iptvApi, iptvLive, stream, liveSlots, netcheck };
+  return { has, premiumize, torbox, iptvApi, iptvLive, stream, liveSlots, netcheck, expressFetch };
 }

@@ -4,7 +4,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/app.js';
@@ -84,6 +84,10 @@ before(async () => {
   fakeBase = `http://127.0.0.1:${fake.address().port}`;
 
   dataDir = mkdtempSync(join(tmpdir(), 'beacon-prov-'));
+  const pack = [{ id: 'p', name: 'Test pack', providers: [
+    { name: 'Good', enabled: true, supported: true, rules: { base_url: 'https://good.example', fallback_urls: ['https://mirror.example'] } },
+    { name: 'Unsupported', enabled: false, supported: false, rules: { base_url: 'https://bad.example' } }] }];
+  writeFileSync(join(dataDir, 'shared-defaults.json'), JSON.stringify({ version: 2, local: { 'beacon:express:packages:v1': JSON.stringify(pack), 'beacon:stremio:addons:v1': '[]' } }));
   const config = {
     webDir: new URL('../../web/', import.meta.url).pathname, appDir: new URL('../../extension/', import.meta.url).pathname,
     sessionSecret: 'z'.repeat(40), sessionDays: 30, cookieSecure: false, trustProxy: true, origins: [], traktClientId: null,
@@ -215,4 +219,21 @@ test('connection check reports the address Sol leaves from', async () => {
   const r = await req('/api/netcheck', { cookie: admin });
   assert.deepEqual(r.data, { ip: '203.0.113.9', city: 'Chicago', country: 'US', org: 'AS0 Proton AG' });
   assert.equal((await req('/api/netcheck')).status, 401);
+});
+
+test('shared defaults are served to signed-in users', async () => {
+  assert.equal((await req('/api/defaults')).status, 401);
+  const d = (await req('/api/defaults', { cookie: admin })).data;
+  assert.equal(d.version, 2);
+  assert.ok(d.local['beacon:express:packages:v1'].includes('good.example'));
+});
+
+test('Express fetches only the shared packages\' supported sites, over https', async () => {
+  const f = url => req('/api/express/fetch?url=' + encodeURIComponent(url), { cookie: admin });
+  assert.equal((await f('https://bad.example/search?q=x')).status, 403, 'unsupported provider');
+  assert.equal((await f('https://evil.example/')).status, 403, 'not in any package');
+  assert.equal((await f('http://good.example/')).status, 400, 'https only');
+  assert.equal((await f('https://user:pw@good.example/')).status, 400);
+  assert.equal((await f(fakeBase + '/media/movie.mp4')).status, 400, 'not a way into local services');
+  assert.equal((await req('/api/express/fetch?url=' + encodeURIComponent('https://good.example/'))).status, 401);
 });

@@ -4,7 +4,7 @@ import { $, $$, h, icon, toast, clear } from './dom.js';
 import { actions } from './actions.js';
 import { trakt } from '../lib/trakt.js';
 import { pm } from '../lib/premiumize.js';
-import { on, loadEmpyrean } from '../lib/store.js';
+import { on, loadEmpyrean, applyDefaults } from '../lib/store.js';
 import { history } from '../lib/history.js';
 import { openDetails, closeDetails, refreshDetails, detailsOpen } from './details.js';
 import { openSources, closeSheet } from './sheet.js';
@@ -172,6 +172,7 @@ on('trakt:sync-errors', errs => {
 /* ---------- boot ---------- */
 (async function boot() {
   await loadEmpyrean();
+  if (await applyDefaults()) { location.reload(); return; }
   if (/^https?:$/.test(location.protocol)) setInterval(loadEmpyrean, 6 * 3600e3); // fresh Live TV stream key
   await Promise.all([trakt.load(), pm.load()]);
   // Website: back from Trakt's sign-in page?

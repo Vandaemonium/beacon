@@ -3,10 +3,13 @@
  *   Jellyfin admins are always allowed and never need an entry.
  * - users/<jellyfin user id>.json: { secrets: { "<key>": value } }
  *   What the extension kept in chrome.storage.local (Trakt sign-in, Trakt settings), per user.
+ * - shared-defaults.json: { version, local: { "<localStorage key>": "<value>" } }
+ *   Settings every browser starts with (Barr's add-ons and Express packages). Edited by hand on Sol;
+ *   bump "version" to push a change to everyone.
  */
 'use strict';
 
-import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 function readJson(path, fallback) {
@@ -33,8 +36,17 @@ export function openStore(dataDir) {
     return join(usersDir, uid + '.json');
   };
   const userData = uid => readJson(userPath(uid), { secrets: {} });
+  const defaultsPath = join(dataDir, 'shared-defaults.json');
+  let defaults = { at: -1, value: null };
 
   return {
+    // Re-read when the file changes, so an edit on Sol needs no restart.
+    sharedDefaults() {
+      let at;
+      try { at = statSync(defaultsPath).mtimeMs; } catch { return null; }
+      if (at !== defaults.at) defaults = { at, value: readJson(defaultsPath, null) };
+      return defaults.value;
+    },
     isAllowed(uid) { return Object.hasOwn(allow, uid); },
     allowlist() { return { ...allow }; },
     allow(uid, name, by) {

@@ -8,6 +8,9 @@
  *                               exist, and a stream key for VLC-openable Live TV links
  *   /api/pm, /api/tb, /api/iptv, /api/stream   the communal accounts (see providers.js)
  *   GET  /api/netcheck          the address Sol's provider traffic leaves from
+ *   GET  /api/defaults          settings every browser starts with (shared add-ons, Express packages)
+ *   GET  /api/express/fetch?url=   a search page for Barr's Express engine, fetched through the VPN;
+ *                               only sites named in the shared Express packages
  *   GET  /api/admin/users       Jellyfin users + whether each may use Beacon (admins only)
  *   POST /api/admin/allow       { id, allowed } (admins only)
  *   GET|PUT|DELETE /api/secrets/<key>   the signed-in user's own saved values (Trakt sign-in etc.)
@@ -193,6 +196,20 @@ export function createApp({ config, jellyfin, store, log = console }) {
       return prov.netcheck();
     },
 
+    'GET /api/defaults': async req => {
+      await requireUser(req);
+      return store.sharedDefaults() || { version: 0, local: {} };
+    },
+
+    'GET /api/express/fetch': async (req, res) => {
+      const me = await requireUser(req);
+      const url = new URL(req.url, 'http://beacon').searchParams.get('url') || '';
+      const out = await prov.expressFetch({ user: me, url, accept: req.headers.accept, defaults: store.sharedDefaults() });
+      res.writeHead(out.status, { ...SECURITY_HEADERS, 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(out.body);
+      return DONE;
+    },
+
     'GET /api/me': async req => {
       const u = await requireUser(req);
       return { id: u.id, name: u.name, admin: u.admin };
@@ -302,7 +319,7 @@ export function createApp({ config, jellyfin, store, log = console }) {
       if (provider !== undefined) return provider === DONE ? undefined : send(res, 200, provider);
       if (route) {
         const out = await route(req, res);
-        return send(res, 200, out);
+        return out === DONE ? undefined : send(res, 200, out);
       }
       if (pathname.startsWith('/api/')) return send(res, 404, { error: 'No such API route' });
       return await serveStatic(req, res, pathname);

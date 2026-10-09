@@ -1,0 +1,13 @@
+{
+  "name": "beacon-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Beacon's backend on Empyrean: Jellyfin login, allowlist, and (later) the provider proxy.",
+  "type": "module",
+  "main": "src/main.js",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test test/"
+  }
+}

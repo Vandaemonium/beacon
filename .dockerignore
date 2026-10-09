@@ -1,0 +1,8 @@
+.git
+extension
+docs
+deploy
+server/test
+**/node_modules
+**/*.env
+.env

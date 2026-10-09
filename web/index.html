@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Beacon</title>
+  <link rel="icon" href="assets/icon48.png">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <main class="card">
+    <header class="brand">
+      <img src="assets/icon128.png" alt="" width="48" height="48">
+      <h1>Beacon</h1>
+    </header>
+
+    <p class="status" id="loading">Loading…</p>
+
+    <form id="login" hidden>
+      <p class="lead">Sign in with your Jellyfin account.</p>
+      <label>Username <input name="username" autocomplete="username" required autofocus></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password"></label>
+      <button type="submit">Sign in</button>
+      <p class="error" id="login-error" role="alert"></p>
+    </form>
+
+    <section id="home" hidden>
+      <p class="lead">Signed in as <strong id="me-name"></strong>.</p>
+      <p class="muted">Beacon's movies, TV and Live TV are on the way. This page checks the login works.</p>
+      <button type="button" id="logout" class="quiet">Sign out</button>
+    </section>
+
+    <section id="admin" hidden>
+      <h2>Who can use Beacon</h2>
+      <p class="muted">Jellyfin admins always can. Tick anyone else to let them in; untick to remove them at once.</p>
+      <p class="error" id="admin-error" role="alert"></p>
+      <ul id="users" class="users"></ul>
+    </section>
+  </main>
+</body>
+</html>

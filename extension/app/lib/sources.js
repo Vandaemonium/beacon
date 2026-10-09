@@ -9,6 +9,7 @@ import { quality, parseRelease, epCode, fmtBytes, norm } from './meta.js';
 import { pm } from './premiumize.js';
 import { torbox } from './torbox.js';
 import { sourceCompat } from './compat.js';
+import { onEmpyrean } from './store.js';
 
 const ADDONS_KEY = 'beacon:stremio:addons:v1';
 
@@ -191,7 +192,9 @@ export async function searchSources(item, ep, onUpdate) {
     const hashes = state.sources.filter(s => s.infoHash && !s.cloud).map(s => s.infoHash);
     if (hashes.length) {
       const res = await pm.cacheCheck(hashes);
-      for (const s of state.sources) if (s.infoHash && res.has(s.infoHash)) { const c = res.get(s.infoHash); s.cached = c.cached; s.transcoded = c.cached && c.transcoded; }
+      // Website: Premiumize's "transcoded" flag (checked 2026-10-09) didn't mean a browser-friendly copy:
+      // its instant links were the original file. So no "Plays in Chrome (browser-friendly)" promise there.
+      for (const s of state.sources) if (s.infoHash && res.has(s.infoHash)) { const c = res.get(s.infoHash); s.cached = c.cached; s.transcoded = c.cached && c.transcoded && !onEmpyrean(); }
       sortSources(state.sources);
     }
   }

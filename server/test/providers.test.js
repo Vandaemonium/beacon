@@ -50,6 +50,7 @@ before(async () => {
       const key = req.method === 'GET' ? u.searchParams.get('apikey') : new URLSearchParams(raw).get('apikey');
       if (key !== PM_KEY) return json(res, 200, { status: 'error', message: 'bad key' });
       if (req.method === 'POST') seen.pmPosts.push(u.pathname);
+      if (u.pathname === '/pm/transfer/directdl') return json(res, 200, { status: 'success', content: [{ path: 'a.mkv', link: media, stream_link: media }] });
       if (u.pathname === '/pm/item/details') return json(res, 200, { status: 'success', id: u.searchParams.get('id'), link: media, stream_link: media + '?s=1' });
       return json(res, 200, { status: 'success', customer_id: 7 });
     }
@@ -236,4 +237,12 @@ test('Express fetches only the shared packages\' supported sites, over https', a
   assert.equal((await f('https://user:pw@good.example/')).status, 400);
   assert.equal((await f(fakeBase + '/media/movie.mp4')).status, 400, 'not a way into local services');
   assert.equal((await req('/api/express/fetch?url=' + encodeURIComponent('https://good.example/'))).status, 401);
+});
+
+test('Premiumize: a "browser-friendly" link that is just the original file again is dropped', async () => {
+  const r = await req('/api/pm/transfer/directdl', { body: { params: { src: 'magnet:?xt=urn:btih:abc' } }, cookie: admin });
+  assert.match(r.data.content[0].link, /^\/api\/stream\//);
+  assert.equal(r.data.content[0].stream_link, '');
+  const d = await req('/api/pm/item/details?id=keep', { cookie: admin });
+  assert.match(d.data.stream_link, /^\/api\/stream\//, 'a real, different copy is kept');
 });

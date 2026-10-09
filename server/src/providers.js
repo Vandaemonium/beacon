@@ -42,7 +42,12 @@ export function providers({ config, vault, log = {} }) {
   // Replace every provider media URL in a JSON response with a Beacon stream link.
   function rewriteLinks(v, uid, key = '') {
     if (Array.isArray(v)) return v.map(x => rewriteLinks(x, uid, key));
-    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, rewriteLinks(x, uid, k)]));
+    if (v && typeof v === 'object') {
+      // Premiumize often returns the original file again as the "browser-friendly" stream_link
+      // (same file, same Dolby/DTS audio). Drop it so the UI doesn't promise a version that plays.
+      if (typeof v.link === 'string' && v.stream_link === v.link) v = { ...v, stream_link: '' };
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, rewriteLinks(x, uid, k)]));
+    }
     if (typeof v === 'string' && LINK_KEYS.has(key) && /^https?:\/\//i.test(v)) return streamLink(v, uid);
     return v;
   }

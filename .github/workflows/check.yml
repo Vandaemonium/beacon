@@ -1,0 +1,25 @@
+# Server tests and documentation checks (links, record format, append-only history).
+name: check
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # the append-only check needs the base branch's history
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: ffmpeg (conversion tests)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Server tests
+        run: cd server && npm test
+      - name: Documentation
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then base="origin/${{ github.base_ref }}"
+          else base=origin/backend; fi
+          node scripts/docs.mjs check --base "$base"

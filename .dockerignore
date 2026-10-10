@@ -1,7 +1,9 @@
 .git
+.github
 docs
-deploy
+scripts
 server/test
+*.md
 **/node_modules
 **/*.env
 .env

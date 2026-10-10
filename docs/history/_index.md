@@ -21,7 +21,7 @@
 | [ADR-0006](decisions/ADR-0006-empyrean-trakt-app.md) | 2026-10-09 | The website uses Empyrean's own Trakt app; the extension keeps Barr's | accepted | reconstructed |
 | [ADR-0007](decisions/ADR-0007-server-side-audio-conversion.md) | 2026-10-09 | Sol converts audio that browsers can't play, for films and Live TV | accepted | reconstructed |
 | [ADR-0008](decisions/ADR-0008-viewer-limit-from-upload.md) | 2026-10-09 | At most 4 people watch at once, set by Sol's upload | accepted | reconstructed |
-| [ADR-0009](decisions/ADR-0009-repo-layout-and-append-only-history.md) | 2026-10-09 | Repository layout, living docs, and an append-only history | proposed | contemporaneous |
+| [ADR-0009](decisions/ADR-0009-repo-layout-and-append-only-history.md) | 2026-10-09 | Repository layout, living docs, and an append-only history | accepted | contemporaneous |
 
 ## Incidents
 

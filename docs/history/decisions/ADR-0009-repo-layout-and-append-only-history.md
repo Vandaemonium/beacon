@@ -5,7 +5,7 @@ title: Repository layout, living docs, and an append-only history
 date: 2026-10-09
 recorded: 2026-10-09
 source: contemporaneous
-status: proposed
+status: accepted
 authors: [Claude (Opus 5.5)]
 evidence: [ChatGPT conversation "Reorganize Beacon Repository" (shared 2026-10-09), branch restructure]
 supersedes: []

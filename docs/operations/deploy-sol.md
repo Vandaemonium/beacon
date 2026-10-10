@@ -1,7 +1,9 @@
 # Running Beacon on Sol
 
+*Living document. Moved here from `deploy/README.md` on 2026-10-09; the compose block matches Sol as of that date.*
+
 Beacon runs as the `beacon` container in Sol's `~/docker/compose.yaml`, built from a
-checkout of this repo at `~/beacon` on Sol. Public at **<https://beacon.empyrean.cc>** (since 2026-10-09;
+checkout of this repo at `~/beacon` on Sol, on the **`backend`** branch (Sol pulls with a read-only deploy key). Public at **<https://beacon.empyrean.cc>** (since 2026-10-09;
 Caddy + a DNS record kept by `cloudflare-ddns`), and on the tailnet at <https://sol.tail5afeac.ts.net:8445>.
 
 ## Secrets (Sol's `~/docker/.env`, never in git)
@@ -11,7 +13,6 @@ Caddy + a DNS record kept by `cloudflare-ddns`), and on the tailnet at <https://
 | `JELLYFIN_API_KEY` | Already there (used by `health`). Lists users for the admin page. |
 | `BEACON_SESSION_SECRET` | 48+ random characters; signs login cookies. Changing it signs everyone out. |
 | `BEACON_TRAKT_CLIENT_ID` | Client ID of the "Empyrean Beacon" Trakt app (not secret). Its Redirect URIs: `https://sol.tail5afeac.ts.net:8445/beacon.html`, `https://beacon.empyrean.cc/beacon.html`. |
-
 | `BEACON_PREMIUMIZE_API_KEY`, `BEACON_TORBOX_API_KEY` | The communal accounts (Barr's). Unset = that provider is off. |
 | `BEACON_IPTV_SERVER`, `BEACON_IPTV_USERNAME`, `BEACON_IPTV_PASSWORD` | The communal Live TV login. Never reaches a browser. |
 | `BEACON_IPTV_MAX_STREAMS` | How many Live TV streams the plan allows at once (3 as of 2026-10-09). |
@@ -23,7 +24,7 @@ Make the session secret with `openssl rand -base64 48`.
 
 ```yaml
   beacon:
-    build: ../beacon               # ~/beacon on Sol (this repo)
+    build: ../beacon               # ~/beacon on Sol (github.com/Vandaemonium/beacon); see its docs/operations/deploy-sol.md
     image: local/beacon:latest
     container_name: beacon
     environment:
@@ -31,25 +32,28 @@ Make the session secret with `openssl rand -base64 48`.
       JELLYFIN_URL: http://host.docker.internal:8096   # host-networked (ufw: 172.16.0.0/12 -> 8096)
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:?set in .env}
       SESSION_SECRET: ${BEACON_SESSION_SECRET:?set in .env}
-      TRAKT_CLIENT_ID: ${BEACON_TRAKT_CLIENT_ID:-}   # Empyrean Beacon Trakt app
+      TRAKT_CLIENT_ID: ${BEACON_TRAKT_CLIENT_ID:-}   # Empyrean Beacon Trakt app (not secret)
+      # Communal accounts (Barr's)
       PREMIUMIZE_API_KEY: ${BEACON_PREMIUMIZE_API_KEY:-}
       TORBOX_API_KEY: ${BEACON_TORBOX_API_KEY:-}
       IPTV_SERVER: ${BEACON_IPTV_SERVER:-}
       IPTV_USERNAME: ${BEACON_IPTV_USERNAME:-}
       IPTV_PASSWORD: ${BEACON_IPTV_PASSWORD:-}
       IPTV_MAX_STREAMS: ${BEACON_IPTV_MAX_STREAMS:-1}
+      MAX_VIEWERS: ${BEACON_MAX_VIEWERS:-4}   # people watching at once; Sol's upload is ~37 Mbit/s (2026-10-09)
+      NOTIFY_URL: http://n8n:5678/webhook/activity   # Beacon alerts + 21:00 summary -> Discord
       # Everything outside Sol goes through Gluetun (ProtonVPN); fails closed if the VPN is down.
       NODE_USE_ENV_PROXY: "1"
       HTTP_PROXY: http://gluetun:8888
       HTTPS_PROXY: http://gluetun:8888
-      NO_PROXY: host.docker.internal,localhost,127.0.0.1
+      NO_PROXY: host.docker.internal,localhost,127.0.0.1,n8n
     extra_hosts:
       - host.docker.internal:host-gateway
     ports:
-      - 127.0.0.1:8796:8796
+      - 127.0.0.1:8796:8796        # public: https://beacon.empyrean.cc (Caddy); tailnet: https://sol.tail5afeac.ts.net:8445
     volumes:
-      - ./config/beacon:/data      # allowlist.json (owned by uid 1000)
-    cpu_shares: 256
+      - ./config/beacon:/data      # allowlist, per-user settings, reports, activity
+    cpu_shares: 256        # streaming in Jellyfin wins
     restart: unless-stopped
 ```
 

@@ -5,7 +5,7 @@
 ## Server tests
 
 ```bash
-cd server && npm test        # node --test test/
+cd server && npm test        # node --test 'test/*.test.js'
 ```
 
 There are 49 tests as of `5ce8534` (2026-10-09). They need Node 22+, plus `ffmpeg` and `ffprobe` on `PATH` for the

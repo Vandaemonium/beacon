@@ -32,6 +32,7 @@
 | [INC-0003](incidents/INC-0003-converted-audio-11-seconds-early.md) | 2026-10-09 | Converted film audio out of sync (keyframe start, then 11 s early) | resolved | reconstructed |
 | [INC-0004](incidents/INC-0004-slow-jellyfin-sign-in.md) | 2026-10-09 | A coworker couldn't sign in because Jellyfin answered too slowly | mitigated | reconstructed |
 | [INC-0005](incidents/INC-0005-plays-in-chrome-labels-on-silent-sources.md) | 2026-10-09 | Sources labelled "Plays in Chrome" played without sound | resolved | reconstructed |
+| [INC-0006](incidents/INC-0006-server-tests-didnt-run-on-node-24.md) | 2026-10-09 | Server tests didn't run on Node 24 | resolved | contemporaneous |
 
 ## Experiments
 

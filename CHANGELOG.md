@@ -8,6 +8,7 @@ User-visible changes to Beacon on Empyrean, newest first. Barr's extension relea
 - Repository reorganized: Barr's old release notes moved out of `extension/` into `docs/beacon-hub/`; deploy notes moved
   to `docs/operations/deploy-sol.md`; new living docs, an append-only history, `AGENTS.md`, `scripts/docs.mjs` and
   CI ([ADR-0009](docs/history/decisions/ADR-0009-repo-layout-and-append-only-history.md)). No change to what the site does.
+- `npm test` works on Node 24 (the image's version) as well as 26 ([INC-0006](docs/history/incidents/INC-0006-server-tests-didnt-run-on-node-24.md)).
 
 ## 2026-10-09: Beacon goes live
 

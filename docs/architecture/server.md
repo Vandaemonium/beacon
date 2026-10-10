@@ -61,6 +61,6 @@ The full comment at the top of `server/src/app.js` is kept in step with this tab
 
 ## Tests
 
-`cd server && npm test` runs `node --test test/`. These are 49 tests as of `5ce8534`, against fake Jellyfin and
+`cd server && npm test` runs `node --test 'test/*.test.js'`. These are 49 tests as of `5ce8534`, against fake Jellyfin and
 provider servers. Some run real ffmpeg conversions, so `ffmpeg`/`ffprobe` must be on `PATH`. See
 [../development/testing.md](../development/testing.md).

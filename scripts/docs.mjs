@@ -92,7 +92,7 @@ function cmdNew(kindArg, title) {
   const k = KINDS[type];
   const used = records().filter(r => r.type === type).map(r => Number(r.meta?.id?.split('-')[1]) || 0);
   const id = `${k.prefix}-${String(Math.max(0, ...used) + 1).padStart(4, '0')}`;
-  const slug = title.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+  const slug = title.toLowerCase().normalize('NFKD').replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
   const file = join(HISTORY, k.dir, `${id}-${slug}.md`);
   const tpl = readFileSync(join(HISTORY, 'templates', `${type}.md`), 'utf8');
   writeFileSync(file, tpl.replaceAll('{{id}}', id).replaceAll('{{title}}', title).replaceAll('{{date}}', today()), { flag: 'wx' });

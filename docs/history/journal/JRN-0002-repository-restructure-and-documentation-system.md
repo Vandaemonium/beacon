@@ -58,7 +58,9 @@ anything that has been done."*
 
 ## How it was checked
 
-- `cd server && npm test`: **49 pass, 0 fail**, before and after the moves.
+- `cd server && npm test`: **49 pass, 0 fail**, before and after the moves (Node 26 on Polaris). The first CI run
+  showed the script failed on Node 24. That was fixed in this branch ([INC-0006](../incidents/INC-0006-server-tests-didnt-run-on-node-24.md)),
+  and the tests now pass 49/49 on both versions. This is the branch's only change to a file the image copies, `server/package.json`: only its `test` script changed, which the image never runs.
 - Local smoke test of the server on this branch: `/api/health` 200, `/` 200, `/beacon.html` 302 (not signed in),
   `/app/ui/main.js` and `/manifest.json` 401, and the moved `/CHANGELOG-5.0.md` and `/README.txt` now 404.
 - `node scripts/docs.mjs check`: passes. Its failure paths were exercised by hand: a modified record, a
@@ -69,7 +71,7 @@ anything that has been done."*
 
 ## Outcome
 
-Branch `restructure`, pushed for review as a pull request into `backend`. Nothing was merged or deployed, and Sol is
+Branch `restructure`, pushed for review as pull request #1 into `backend`. Nothing was merged or deployed, and Sol is
 unchanged.
 
 ## Left open
